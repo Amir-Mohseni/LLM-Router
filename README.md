@@ -1,10 +1,18 @@
 # LLM Router
 ## Research Project for Computer Science Bachelor's - Project 2-2
 
-### Overview
+### Research Overview & Roadmap
+![LLM Router Flowchart](docs/flowchart.png)
+*System flowchart showing the complete research process:*
+1. *Query distribution to multiple LLMs*
+2. *Answer evaluation using Judge LLM system*
+3. *Cost optimization through viable model selection*
+4. *BERT-based router training for automated model selection*
+
+### Project Description
 This project implements an intelligent routing system for Large Language Models (LLMs) that optimizes for cost while maintaining answer quality. The system uses a BERT-based router trained on historical performance data to direct queries to the most cost-effective LLM capable of answering the query correctly.
 
-### Implementation Roadmap
+### Implementation Steps
 
 1. **Initial Query Distribution**
    - Send the same query to multiple LLMs (e.g., GPT-4o, o1, Deepseek R1, Deepseek V3, Llama 3 8B, Qwen 2.5 7B)
