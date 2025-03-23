@@ -50,6 +50,10 @@ def respond(message, chat_history, model_name, notification):
         print(f"[DEBUG] {first_chunk}")
         model_notification = f"🤖 {first_chunk}"
         
+        # Show pop-up notification
+        selected_model = first_chunk.replace("Using ", "").split(" (")[0]
+        gr.Info(f"🤖 Model selected: {selected_model}")
+        
         # Continue with actual response chunks
         for chunk in response_generator:
             chat_history[-1]["content"] = chunk
@@ -59,9 +63,13 @@ def respond(message, chat_history, model_name, notification):
         if model_name == "automatic":
             model_notification = "🤖 Using automatic model selection (no model info returned)"
             print("[DEBUG] Automatic selection, but no model info returned")
+            # Show generic pop-up for automatic selection
+            gr.Info("🤖 Using automatic model selection")
         else:
             model_notification = f"🤖 Using {model_name} (manually selected)"
             print(f"[DEBUG] Manually selected model: {model_name}")
+            # Show pop-up for manual selection
+            gr.Info(f"🤖 Model selected: {model_name}")
             
         # First chunk is actual response content
         chat_history[-1]["content"] = first_chunk
@@ -139,6 +147,11 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
         opacity: 0;
         padding: 0;
         margin: 0;
+    }
+    /* Style for pop-up notifications */
+    .gradio-info {
+        font-weight: 500 !important;
+        font-size: 1.05em !important;
     }
     """
     
