@@ -78,7 +78,7 @@ class LLMHandler:
             response = client.chat.completions.create(
                 model=model_key,
                 messages=[{"role": m["role"], "content": m["content"]} for m in messages],
-                max_tokens=500,
+                max_tokens=1000,
             )
             
             # Return the full response
