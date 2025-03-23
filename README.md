@@ -66,4 +66,46 @@ This is a research project for a Computer Science Bachelor's degree. While it's 
 MIT License
 
 ---
-*This project is part of the Computer Science Bachelor's Program - Project 2-2* 
+*This project is part of the Computer Science Bachelor's Program - Project 2-2*
+
+# Hugging Face LLM Chat App
+
+This is a gradio-based chat application that uses Hugging Face's LLM models through their OpenAI-compatible API.
+
+## Setup
+
+1. Install the required dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
+
+2. Set your Hugging Face API token as an environment variable:
+   ```
+   export HF_TOKEN='your_huggingface_token_here'
+   ```
+   
+   You can get your token from your [Hugging Face settings page](https://huggingface.co/settings/tokens).
+
+3. Run the application:
+   ```
+   python app.py
+   ```
+
+4. Open your browser at the URL provided in the terminal (usually http://127.0.0.1:7860)
+
+## Features
+
+- Chat with different LLM models hosted on Hugging Face
+- Automatic model selection based on query content
+- Conversation history tracking
+- Simple, intuitive interface
+
+## Models
+
+The application currently supports:
+- Gemma 27B Instruction-tuned
+- Llama 3 8B Instruction-tuned
+
+## How to Add More Models
+
+To add more models, modify the `models` dictionary in the `LLMHandler` class in `llm.py`. 
