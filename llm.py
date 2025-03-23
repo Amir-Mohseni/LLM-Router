@@ -74,7 +74,6 @@ class LLMHandler:
             completion = client.chat.completions.create(
                 model=model_key,
                 messages=[{"role": m["role"], "content": m["content"]} for m in messages],
-                max_tokens=500,
             )
             
             # Extract the response

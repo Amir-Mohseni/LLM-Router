@@ -12,6 +12,7 @@ class ModelRouter:
             "google/gemma-3-27b-it": "Gemma 3 27B",
             "meta-llama/Llama-3.2-1B-Instruct": "Llama 3.2 1B",
             "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B": "Distill R1 1.5B",
+            "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B": "Distill R1 32B",
         }
         self.classifier = Classifier(model_name='AmirMohseni/BERT-Router-base')
     
@@ -28,7 +29,7 @@ class ModelRouter:
         model_type = self.classifier.classify(message)
         
         if model_type == 'large_llm':
-            return 'deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B'
+            return 'deepseek-ai/DeepSeek-R1-Distill-Qwen-32B'
         elif model_type == 'small_llm':
             return 'meta-llama/Llama-3.2-1B-Instruct'
         else:
