@@ -68,44 +68,119 @@ MIT License
 ---
 *This project is part of the Computer Science Bachelor's Program - Project 2-2*
 
-# Hugging Face LLM Chat App
+# Hugging Face LLM Chat Application
 
-This is a gradio-based chat application that uses Hugging Face's LLM models through their OpenAI-compatible API.
+A Gradio-based chat application that intelligently routes user queries to different Large Language Models (LLMs) from Hugging Face using their OpenAI-compatible API.
 
-## Setup
+![Chat Interface Preview](https://i.imgur.com/example-image.png)
 
-1. Install the required dependencies:
+## 🌟 Features
+
+- **Multiple Model Support**: Chat with different LLMs hosted on Hugging Face
+- **Intelligent Routing**: Automatic model selection based on query content
+- **Conversation History**: Full chat history maintained throughout session
+- **User-Friendly Interface**: Clean, responsive Gradio UI
+- **Model Selection**: Choose models manually or let the router decide
+
+## 🤖 Supported Models
+
+The application currently integrates with:
+
+- **Google/Gemma-3-27b-it**: Google's powerful instruction-tuned model with 27B parameters
+- **Meta-llama/Llama-3.2-1B-Instruct**: Meta's efficient instruction-tuned model with 1B parameters
+- **Deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B**: Deepseek's powerful thinking and reasoning model with 1.5B parameters
+
+## 🛠️ Installation
+
+### Prerequisites
+
+- Python 3.8+
+- A Hugging Face account with API access
+
+### Setup
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/llm-chat-app.git
+   cd llm-chat-app
    ```
+
+2. Install dependencies:
+   ```bash
    pip install -r requirements.txt
    ```
 
-2. Set your Hugging Face API token as an environment variable:
-   ```
+3. Set your Hugging Face API token:
+   ```bash
    export HF_TOKEN='your_huggingface_token_here'
    ```
    
-   You can get your token from your [Hugging Face settings page](https://huggingface.co/settings/tokens).
+   You can obtain your token from the [Hugging Face settings page](https://huggingface.co/settings/tokens).
 
-3. Run the application:
-   ```
-   python app.py
-   ```
+## 🚀 Running the Application
 
-4. Open your browser at the URL provided in the terminal (usually http://127.0.0.1:7860)
+Start the application with:
 
-## Features
+```bash
+python app.py
+```
 
-- Chat with different LLM models hosted on Hugging Face
-- Automatic model selection based on query content
-- Conversation history tracking
-- Simple, intuitive interface
+Then open your browser at the URL displayed in the terminal (typically http://127.0.0.1:7860).
 
-## Models
+## 📁 Project Structure
 
-The application currently supports:
-- Gemma 27B Instruction-tuned
-- Llama 3 8B Instruction-tuned
+- **app.py**: Main Gradio interface and application entry point
+- **llm.py**: LLM handler that manages API calls to Hugging Face
+- **router.py**: Smart router that determines which model to use based on content
+- **requirements.txt**: Python dependencies
 
-## How to Add More Models
+## 🧠 How the Router Works
 
-To add more models, modify the `models` dictionary in the `LLMHandler` class in `llm.py`. 
+The router analyzes user messages to determine the most appropriate model:
+
+- **Creative Content**: For stories, poems, or creative writing → Gemma 27B
+- **Complex Questions**: For explanations, analyses, or technical content → Gemma 27B
+- **Simple Queries**: For straightforward questions or chat → Llama 3 8B
+
+## 🔧 Customization
+
+### Adding New Models
+
+To add a new model, update the `models` dictionary in `router.py`:
+
+```python
+self.models = {
+   "google/gemma-3-27b-it": "Gemma 3 27B",
+   "meta-llama/Llama-3.2-1B-Instruct": "Llama 3.2 1B",
+   "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B": "Distill R1 1.5B",
+}
+```
+
+Then update the routing logic in the `select_model` method.
+
+### Modifying the Interface
+
+The Gradio interface can be customized in `app.py` - refer to the [Gradio documentation](https://www.gradio.app/docs) for more options.
+
+## 📊 Performance Considerations
+
+- The application routes simpler queries to smaller models to balance performance and quality
+- For multi-turn conversations, history is limited to the most recent exchanges
+
+## 🔍 Troubleshooting
+
+- **API Errors**: Verify your HF_TOKEN is valid and has the necessary permissions
+- **SSL Certificate Issues**: Update certificates with `pip install --upgrade certifi`
+- **Slow Responses**: Check your network connection and Hugging Face API status
+
+## 📝 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📧 Contact
+
+For questions or feedback, please open an issue in the GitHub repository. 
