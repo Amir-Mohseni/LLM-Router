@@ -101,8 +101,8 @@ The application currently integrates with:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/llm-chat-app.git
-   cd llm-chat-app
+   git clone https://github.com/Amir-Mohseni/LLM-Router.git
+   cd LLM-Router
    ```
 
 2. Install dependencies:
