@@ -3,8 +3,8 @@ import os
 # Set tokenizers parallelism to avoid warnings
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-from llm import LLMHandler
-from router import ModelRouter
+from .llm import LLMHandler
+from .router import ModelRouter
 
 # Check for API key
 if not os.getenv('HF_TOKEN'):
@@ -59,8 +59,19 @@ def respond(message, chat_history, model_name, notification):
             chat_history[-1]["content"] = chunk
             yield "", chat_history, model_notification
     else:
-        # If no model info (manual selection or error), create notification for the selected model
-        if model_name == "automatic":
+        # Handle error messages (including service unavailable)
+        if first_chunk.startswith("Sorry, the") and ("service is currently unavailable" in first_chunk or "Hugging Face service is currently unavailable" in first_chunk):
+            model_notification = """<div class="error-notification">❌ Service Unavailable - Please try a different model or try again later</div>"""
+            print(f"[ERROR] Service unavailable detected")
+            # Show error pop-up
+            gr.Warning("❌ Service Unavailable - The model service is not responding")
+            
+            # Add error message with special marker for CSS
+            chat_history[-1]["content"] = first_chunk
+            yield "", chat_history, model_notification
+            return
+        # If no model info (manual selection or other errors), create notification for the selected model
+        elif model_name == "automatic":
             model_notification = "🤖 Using automatic model selection (no model info returned)"
             print("[DEBUG] Automatic selection, but no model info returned")
             # Show generic pop-up for automatic selection
@@ -78,7 +89,7 @@ def respond(message, chat_history, model_name, notification):
         # Continue with rest of chunks
         for chunk in response_generator:
             chat_history[-1]["content"] = chunk
-            yield "", chat_history, model_notification
+            yield "", chat_history, model_notification, ""
 
 # Create Gradio interface
 with gr.Blocks(title="Streaming LLM Chat App") as demo:
@@ -153,6 +164,15 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
         font-weight: 500 !important;
         font-size: 1.05em !important;
     }
+    /* Style for error notifications */
+    .error-notification {
+        background-color: rgba(220, 38, 38, 0.1);
+        color: rgba(185, 28, 28, 1);
+        font-weight: 500;
+        border-left: 4px solid rgba(220, 38, 38, 0.8);
+        padding: 8px 15px;
+        border-radius: 8px;
+    }
     """
     
     # Add the CSS to the page
@@ -180,7 +200,4 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
         queue=False
     )
 
-# Launch the app
-if __name__ == "__main__":
-    demo.queue()
-    demo.launch() 
+# No longer need the launch code here as it's in main.py 

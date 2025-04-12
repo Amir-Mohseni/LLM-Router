@@ -3,7 +3,7 @@ import os
 # Set tokenizers parallelism to avoid warnings
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-from router import ModelRouter
+from .router import ModelRouter
 
 class LLMHandler:
     """Handler for LLM models to generate responses using Hugging Face's API"""
@@ -82,13 +82,25 @@ class LLMHandler:
             )
             
             # Return the full response
-            return response.choices[0].message.content
+            content = response.choices[0].message.content
+            # Check if we're getting HTML error response
+            if content.strip().startswith("<!DOCTYPE html>") or content.strip().startswith("<html"):
+                print(f"[ERROR] Received HTML error response")
+                return "Sorry, the service is currently unavailable. Please try again later or select a different model."
+            
+            return content
             
         except Exception as e:
             # Handle any API errors
             error_msg = f"Error: {str(e)}"
             print(error_msg)
-            return f"Sorry, I encountered an error: {str(e)}"
+            
+            # Check if the error contains HTML (service unavailable response)
+            error_text = str(e)
+            if "<!DOCTYPE html>" in error_text or "<html" in error_text:
+                return "Sorry, the Hugging Face service is currently unavailable. Please try again later or select a different model."
+            else:
+                return f"Sorry, I encountered an error: {str(e)}"
     
     def generate_streaming_response(self, message, history, model_selection):
         """
@@ -128,6 +140,11 @@ class LLMHandler:
             for chunk in stream:
                 if chunk.choices[0].delta.content is not None:
                     content = chunk.choices[0].delta.content
+                    # Check if we're getting HTML error response
+                    if content.strip().startswith("<!DOCTYPE html>") or content.strip().startswith("<html"):
+                        print(f"[ERROR] Received HTML error response")
+                        yield "Sorry, the service is currently unavailable. Please try again later or select a different model."
+                        return
                     full_response += content
                     # Yield the full accumulated response so far
                     yield full_response
@@ -136,7 +153,13 @@ class LLMHandler:
             # Handle any API errors
             error_msg = f"Error: {str(e)}"
             print(error_msg)
-            yield f"Sorry, I encountered an error: {str(e)}"
+            
+            # Check if the error contains HTML (service unavailable response)
+            error_text = str(e)
+            if "<!DOCTYPE html>" in error_text or "<html" in error_text:
+                yield "Sorry, the Hugging Face service is currently unavailable. Please try again later or select a different model."
+            else:
+                yield f"Sorry, I encountered an error: {str(e)}"
         
 if __name__ == "__main__":
     llm = LLMHandler()
