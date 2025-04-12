@@ -2,7 +2,7 @@ import os
 # Set tokenizers parallelism to avoid warnings
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-from classifier import Classifier
+from .classifier import Classifier
 
 
 class ModelRouter:
