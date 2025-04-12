@@ -1,28 +1,58 @@
 import pandas as pd
 import hashlib
 import json
+import sys
 from typing import Optional
-
 
 def get_question_id(question: str) -> str:
     return hashlib.md5(question.encode()).hexdigest()
 
+def check_missing_and_empty(df: pd.DataFrame, verbose: bool = False, ignore_columns: list[str] = None) -> tuple[bool, bool]:
+    # If columns are specified to be ignored, drop them; ignore errors if a column isn't present.
+    if ignore_columns:
+        df_check = df.drop(columns=ignore_columns, errors='ignore')
+    else:
+        df_check = df
+
+    # Check for missing values (None, np.nan, etc.)
+    has_missing = df_check.isna().values.any()
+    
+    # Check for empty strings in cells that contain strings only.
+    has_empty = df_check.applymap(lambda x: isinstance(x, str) and x == "").values.any()
+
+    if verbose:
+        messages = []
+        if ignore_columns:
+            messages.append("NOTE: The following columns are ignored: " + ", ".join(ignore_columns))
+        if has_missing:
+            messages.append("WARNING: The dataframe has missing values")
+        if has_empty:
+            messages.append("WARNING: The dataframe has empty string values")
+        if not (has_missing or has_empty):
+            messages.append("OK: Dataframe has no missing or empty string values")
+        print("\n".join(messages))
+    
+    return has_missing, has_empty
+
 
 df = pd.read_json("hf://datasets/HuggingFaceH4/MATH-500/test.jsonl", lines=True)
 
+has_missing, has_empty = check_missing_and_empty(df, True);
+if has_missing or has_empty:
+    print("exiting with status code 1...")
+    sys.exit(1)
 
 # Function to normalize each row to the new schema
 def normalize_row(row) -> dict:
     return {
         "unique_id": get_question_id(row["problem"]),
         "question": row["problem"],
+        "category": row["subject"],
         "choices": None,
-        "answer": (row["answer"] if row["answer"] is not None else None),
-        "ground_truth_answer": -1,
-        "solution": row["solution"],
-        "category": row.get("subject", None),
+        "choice_index_correct": None,
+        "explanation_correct": row["solution"],
+        "answer_correct": row["answer"],
     }
-
 
 # Normalize and write to JSONL
 output_path = "math_500.jsonl"
