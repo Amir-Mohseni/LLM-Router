@@ -6,7 +6,7 @@ This directory contains tools for collecting and analyzing model responses to pr
 
 1. Install the required dependencies:
    ```bash
-   pip install vllm datasets tqdm
+   pip install -r requirements.txt
    ```
 
 2. Make sure you have a valid Hugging Face API token to access the models.
@@ -34,14 +34,6 @@ Options:
 - `--k_responses`: Number of responses to generate per problem (default: 5)
 - `--temperature`: Sampling temperature (default: 0.7)
 - `--output_dir`: Directory to save results (default: "data_collection/inference_results")
-
-### Multiple Model Testing
-
-To test multiple models:
-
-```bash
-python -m data_collection.run_tests --models "google/gemma-3-1b-it" "meta-llama/Llama-3.2-1B-Instruct" --num_problems 5 --k_responses 3
-```
 
 This will run each model in sequence and save the results to separate files.
 
