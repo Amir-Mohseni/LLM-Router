@@ -113,7 +113,7 @@ Final Answer: 12
 Explanation: The answer states Carbon has 12 protons, which is incorrect. Carbon has 6 protons.
 """
 
-PROMPT = """
+MATH_PROMPT = """
 When presenting mathematical solutions, follow these requirements:
 
 1. **Structured Reasoning**: Show clear step-by-step thinking.
@@ -168,5 +168,54 @@ Total possibilities: 36.
 
 ### Current Problem ###
 User: {{ question }}
+Assistant:
+"""
+
+MCQ_PROMPT = """
+Answer the following multiple-choice question by analyzing all options carefully.
+
+1. **Step-by-Step Reasoning**: Briefly explain your reasoning and process of elimination.
+2. **Final Choice Format**: Wrap the final selected answer choice (e.g., A, B, C, or D) in <answer> tags using \\boxed{} LaTeX.
+3. **Answer the Question Fully**: Use only the information needed to justify the correct choice.
+4. **No Post-Answer Text**: Never add any text after the answer block.
+
+### Examples ###
+
+User: What is the capital of France?  
+Options:  
+A. Berlin  
+B. Madrid  
+C. Paris  
+D. Rome  
+Assistant:  
+Paris is the capital of France. The other cities are capitals of Germany, Spain, and Italy respectively.  
+<answer>\\boxed{C}</answer>
+
+User: Which gas do plants primarily use for photosynthesis?  
+Options:  
+A. Oxygen  
+B. Carbon Dioxide  
+C. Nitrogen  
+D. Hydrogen  
+Assistant:  
+Plants use carbon dioxide during photosynthesis to create glucose and oxygen.  
+<answer>\\boxed{B}</answer>
+
+User: Who wrote 'Hamlet'?  
+Options:  
+A. Charles Dickens  
+B. William Shakespeare  
+C. Jane Austen  
+D. Mark Twain  
+Assistant:  
+'Hamlet' is a tragedy written by William Shakespeare.  
+<answer>\\boxed{B}</answer>
+
+### Current Problem ###
+User: {{ question }}
+Options:
+{% for choice in choices %}
+{{ choice }}
+{% endfor %}
 Assistant:
 """

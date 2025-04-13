@@ -4,8 +4,8 @@
 DEFAULT_MODEL = "google/gemma-3-4b-it"
 
 # Dataset settings
-DATASET_NAME = "HuggingFaceH4/MATH-500"
-DATASET_SPLIT = "test"
+DATASET_NAME = "HPC-Boys/MATH_500_MMLU_Pro"
+DATASET_SPLIT = "train"
 NUM_PROBLEMS = 5  # Number of problems to test
 
 # Generation settings

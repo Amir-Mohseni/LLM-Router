@@ -2,11 +2,11 @@
 import os
 import json
 import time
-import re
 import argparse
-from typing import List, Dict
+from typing import List, Dict, Any, Optional
 from tqdm import tqdm
 from pathlib import Path
+import jinja2
 
 # Import vLLM for efficient inference
 from vllm import LLM, SamplingParams
@@ -19,7 +19,7 @@ from data_collection.config import (
     DEFAULT_MODEL, DATASET_NAME, DATASET_SPLIT,
     NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR
 )
-from data_collection.prompts import PROMPT, DEFAULT_SYSTEM_PROMPT
+from data_collection.prompts import MATH_PROMPT, MCQ_PROMPT, DEFAULT_SYSTEM_PROMPT
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run inference with LLMs on math problems")
@@ -35,18 +35,28 @@ def parse_args():
                         help=f"Directory to save results (default: {OUTPUT_DIR})")
     return parser.parse_args()
 
-def format_prompt(question: str) -> str:
-    """Format the question using the template from prompts.py"""
-    # Replace the placeholder with the actual question
-    formatted_prompt = PROMPT.replace("{{ question }}", question)
+def format_mcq_prompt(question: str, choices: List[str]) -> str:
+    """Format an MCQ question using the template from prompts.py"""
+    # Use Jinja2 to handle the template with the for loop
+    env = jinja2.Environment()
+    template = env.from_string(MCQ_PROMPT)
     
-    # Return the formatted prompt as a string
+    # Render the template with the question and choices
+    formatted_prompt = template.render(
+        question=question,
+        choices=choices
+    )
+    
     return formatted_prompt
 
-def extract_answer(generated_text: str) -> str:
-    """Extract the answer from the <answer>...</answer> tags"""
-    answer_match = re.search(r'<answer>(.*?)</answer>', generated_text, re.DOTALL)
-    return answer_match.group(1).strip() if answer_match else "No answer found in formatted output"
+def format_prompt(question: str, choices: Optional[List[str]] = None) -> str:
+    """Format the question using the appropriate template from prompts.py"""
+    # Check if it's an MCQ question
+    if choices:
+        return format_mcq_prompt(question, choices)
+    else:
+        # For non-MCQ questions, use the regular prompt
+        return MATH_PROMPT.replace("{{ question }}", question)
 
 def generate_responses(llm: LLM, prompts: List[str], k_responses: int, temperature: float) -> List[Dict]:
     """Generate k responses for each prompt using vLLM"""
@@ -59,17 +69,16 @@ def generate_responses(llm: LLM, prompts: List[str], k_responses: int, temperatu
     
     # Generate responses for each prompt
     all_responses = []
-    for i, prompt in enumerate(tqdm(prompts, desc="Processing prompts")):
+    for _, prompt in enumerate(tqdm(prompts, desc="Processing prompts")):
         outputs = llm.generate(prompt, sampling_params)
         
         responses = []
         for output in outputs:
             generated_text = output.outputs[0].text.strip()
-            extracted_answer = extract_answer(generated_text)
             
+            # Store just the full response text without extraction
             responses.append({
-                "full_response": generated_text,
-                "extracted_answer": extracted_answer
+                "full_response": generated_text
             })
         
         all_responses.append({
@@ -99,6 +108,11 @@ def save_results(results: List[Dict], model_name: str, num_problems: int,
     
     return output_file
 
+def format_choices(choices: List[str]) -> List[str]:
+    """Format the choices with option letters (A, B, C, etc.)"""
+    option_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    return [f"{option_letters[i]}. {choice}" for i, choice in enumerate(choices)]
+
 def main():
     # Parse command line arguments
     args = parse_args()
@@ -127,19 +141,31 @@ def main():
     problems_info = []
     
     for problem in dataset:
-        # Format prompt using the template and add system instructions
-        question = problem["problem"]
-        formatted_prompt = format_prompt(question)
+        # Get the question and determine if it's MCQ
+        question = problem["question"]
+        is_mcq = problem.get("choices") is not None
         
-        # Prepend system prompt if needed (for models that support it, like Claude)
-        # Or just use the formatted prompt as is for most models
+        # Format prompt based on question type
+        if is_mcq:
+            # Format choices with letters (A, B, C, etc.)
+            formatted_choices = format_choices(problem["choices"])
+            formatted_prompt = format_prompt(question, formatted_choices)
+        else:
+            formatted_prompt = format_prompt(question)
+        
+        # Prepend system prompt
         final_prompt = f"{DEFAULT_SYSTEM_PROMPT}\n\n{formatted_prompt}"
         
-        # Store the problem information - MATH-500 has 'problem', 'solution', and 'answer' fields
+        # Store all problem information
         problems_info.append({
+            "unique_id": problem.get("unique_id", ""),
             "problem": question,
-            "solution": problem.get("solution", ""),  # Use get() in case field doesn't exist
-            "correct_answer": problem.get("answer", "")
+            "is_mcq": is_mcq,
+            "choices": problem.get("choices", None),
+            "choice_index_correct": problem.get("choice_index_correct", None),
+            "explanation_correct": problem.get("explanation_correct", ""),
+            "answer_correct": problem.get("answer_correct", ""),
+            "category": problem.get("category", "")
         })
         
         prompts.append(final_prompt)
@@ -171,9 +197,14 @@ def main():
     results = []
     for i, (problem_info, response_set) in enumerate(zip(problems_info, responses)):
         results.append({
+            "unique_id": problem_info["unique_id"],
             "problem": problem_info["problem"],
-            "solution": problem_info["solution"],
-            "correct_answer": problem_info["correct_answer"],
+            "is_mcq": problem_info["is_mcq"],
+            "choices": problem_info["choices"],
+            "choice_index_correct": problem_info["choice_index_correct"],
+            "explanation_correct": problem_info["explanation_correct"],
+            "answer_correct": problem_info["answer_correct"],
+            "category": problem_info["category"],
             "responses": response_set["responses"]
         })
     
@@ -187,32 +218,8 @@ def main():
     )
     
     print(f"Results saved to {output_file}")
-    
-    # Calculate basic metrics
-    correct_count = 0
-    total_responses = 0
-    
-    for result in results:
-        correct_answer = result["correct_answer"]
-        
-        for response in result["responses"]:
-            extracted_answer = response["extracted_answer"]
-            # Simple exact match for now
-            if extracted_answer.strip() == correct_answer.strip():
-                correct_count += 1
-            total_responses += 1
-    
-    accuracy = correct_count / total_responses if total_responses > 0 else 0
-    print(f"Overall accuracy: {accuracy:.2%} ({correct_count}/{total_responses})")
-    
-    # Display a sample of results
-    print("\nSample of results:")
-    for i, result in enumerate(results[:2]):  # Show first two problems
-        print(f"\nProblem {i+1}: {result['problem'][:100]}...")
-        print(f"Correct answer: {result['correct_answer']}")
-        print("Generated answers:")
-        for j, response in enumerate(result["responses"][:2]):  # Show first two responses
-            print(f"  Response {j+1}: {response['extracted_answer']}")
+    print("\nTo extract and analyze answers, use the answer_extraction.py script:")
+    print(f"python -m data_collection.answer_extraction --input {output_file}")
 
 if __name__ == "__main__":
     main() 
