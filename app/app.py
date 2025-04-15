@@ -93,12 +93,13 @@ def respond(message, chat_history, model_name, notification):
 
 # Create Gradio interface
 with gr.Blocks(title="Streaming LLM Chat App") as demo:
-    gr.Markdown("# 💬 Chat with Hugging Face LLMs")
+    gr.Markdown("# 📡Router")
     gr.Markdown("Select a model or use automatic mode to chat with different language models. Watch responses stream in real-time!")
     
     chatbot = gr.Chatbot(
         label="Conversation",
-        height=500,
+        # label="",
+        height=650,
         show_copy_button=True,
         elem_id="chatbot",
         type="messages"
@@ -113,18 +114,19 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
                 show_label=False,
                 container=False
             )
-        
-        with gr.Column(scale=1):
+        with gr.Column(scale=1, min_width=100):
             model_dropdown = gr.Dropdown(
                 choices=["automatic"] + router.get_available_models(),
                 value="automatic",
                 label="Select LLM",
+                elem_id="model_dropdown",
+                show_label=False,
                 container=True
             )
-    
-    with gr.Row():
-        submit_btn = gr.Button("Send", variant="primary")
-        clear_btn = gr.Button("Clear chat")
+        with gr.Column(scale=1, min_width=100):
+            submit_btn = gr.Button("Send", variant="primary",elem_id="send",)
+        with gr.Column(scale=1, min_width=100):
+            clear_btn = gr.Button("Clear chat",elem_id="clear",)
     
     # Add a notification component at the bottom
     with gr.Row():
@@ -141,14 +143,47 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
             ["What are the key differences between quantum computing and classical computing?"],
             ["Give me a simple recipe for chocolate chip cookies."]
         ],
-        inputs=msg
+        inputs=msg,
+        elem_id="centered-examples"
     )
     
     # CSS for the notification
     css = """
+    #component-17{
+        display: none !important;;
+    }
+    footer{
+        margin: 0 !important;
+    }
+    #send, #clear  {
+        margin: 10px 0px;
+    } 
+    #centered-examples {
+        display: flex;
+        flex-direction: row;
+        align-items: center;         /* Vertically align children */
+        justify-content: center;     /* Horizontally center everything */
+        gap: 16px;                   /* Space between heading and buttons */
+    }   
+
+    #centered-examples > div:first-child {
+        display: flex;
+        align-items: center;
+        text-align: center;
+        white-space: nowrap;         /* Prevent line breaks */
+        height: 100%;                /* Fill the height for vertical centering */
+    }
+
+    #centered-examples > div:last-child {
+        display: flex !important;
+        align-items: center;         /* Vertically center example buttons */
+        justify-content: center !important;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
     .notification-area {
-        padding: 8px 15px;
-        margin-top: 10px;
+        padding: 0px 15px 0px 15px;
         border-radius: 8px;
         background-color: rgba(0, 0, 0, 0.05);
         transition: opacity 0.5s ease;
