@@ -15,11 +15,11 @@ from vllm import LLM, SamplingParams
 from datasets import load_dataset
 
 # Import local modules
-from data_collection.config import (
+from config import (
     DEFAULT_MODEL, DATASET_NAME, DATASET_SPLIT,
     NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR
 )
-from data_collection.prompts import MATH_PROMPT, MCQ_PROMPT, DEFAULT_SYSTEM_PROMPT
+from prompts import MATH_PROMPT, MCQ_PROMPT, DEFAULT_SYSTEM_PROMPT
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run inference with LLMs on math problems")
