@@ -174,6 +174,8 @@ def main():
     print(f"Initializing model {args.model}...")
     start_time = time.time()
     
+    # Disable vLLM V1 engine to avoid ZMQ socket issues
+    os.environ['VLLM_USE_V1'] = '0'
     llm = LLM(model=args.model, max_model_len=2048, dtype="auto")
     
     model_init_time = time.time() - start_time
