@@ -25,14 +25,16 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Run inference with LLMs on math problems")
     parser.add_argument("--model", type=str, default=DEFAULT_MODEL, 
                         help=f"Model to use for inference (default: {DEFAULT_MODEL})")
-    parser.add_argument("--num_problems", type=int, default=NUM_PROBLEMS,
-                        help=f"Number of problems to test (default: {NUM_PROBLEMS})")
+    parser.add_argument("--num_problems", type=str, default=str(NUM_PROBLEMS),
+                        help=f"Number of problems to test or 'all' for entire dataset (default: {NUM_PROBLEMS})")
     parser.add_argument("--k_responses", type=int, default=K_RESPONSES,
                         help=f"Number of responses per problem (default: {K_RESPONSES})")
     parser.add_argument("--temperature", type=float, default=TEMPERATURE,
                         help=f"Sampling temperature (default: {TEMPERATURE})")
     parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR,
                         help=f"Directory to save results (default: {OUTPUT_DIR})")
+    parser.add_argument("--batch_size", type=int, default=5,
+                        help="Number of problems to process in each batch (default: 5)")
     return parser.parse_args()
 
 def format_mcq_prompt(question: str, choices: List[str]) -> str:
@@ -129,9 +131,28 @@ def main():
     print(f"Running inference with the following settings:")
     print(f"  Model: {args.model}")
     print(f"  Dataset: {DATASET_NAME} (split: {DATASET_SPLIT})")
-    print(f"  Problems: {args.num_problems}")
+    
+    # Handle 'all' or specific number of problems
+    if args.num_problems.lower() == 'all':
+        num_problems_str = "all"
+        num_problems = -1  # Special value to indicate all problems
+    else:
+        try:
+            num_problems = int(args.num_problems)
+            num_problems_str = str(num_problems)
+            if num_problems <= 0:
+                print("Warning: num_problems must be positive or 'all'. Using all problems.")
+                num_problems = -1
+                num_problems_str = "all"
+        except ValueError:
+            print(f"Warning: Invalid num_problems value '{args.num_problems}'. Using default {NUM_PROBLEMS}.")
+            num_problems = NUM_PROBLEMS
+            num_problems_str = str(num_problems)
+    
+    print(f"  Problems: {num_problems_str}")
     print(f"  Responses per problem: {args.k_responses}")
     print(f"  Temperature: {args.temperature}")
+    print(f"  Batch size: {args.batch_size}")
     print(f"  Output directory: {args.output_dir}")
     
     # Load the dataset
@@ -139,8 +160,8 @@ def main():
     dataset = load_dataset(DATASET_NAME, split=DATASET_SPLIT)
     
     # Limit to the desired number of problems
-    if args.num_problems > 0:
-        dataset = dataset.select(range(min(args.num_problems, len(dataset))))
+    if num_problems > 0:
+        dataset = dataset.select(range(min(num_problems, len(dataset))))
     
     print(f"Loaded {len(dataset)} problems")
     
@@ -158,14 +179,15 @@ def main():
     
     # Create a unique output file path
     cleaned_model_name = args.model.replace('/', '_')
+    dataset_size_str = "full" if num_problems_str == "all" else f"{len(dataset)}"
     output_file = os.path.join(
         args.output_dir, 
-        f"{cleaned_model_name}_{len(dataset)}problems_{args.k_responses}k_{int(time.time())}.jsonl"
+        f"{cleaned_model_name}_{dataset_size_str}problems_{args.k_responses}k_{int(time.time())}.jsonl"
     )
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
     # Process in batches for checkpointing
-    batch_size = 5  # Process 5 problems at a time
+    batch_size = args.batch_size
     first_batch = True
     
     for batch_start in range(0, len(dataset), batch_size):

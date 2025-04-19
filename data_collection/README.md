@@ -33,6 +33,7 @@ This separation allows for more efficient processing and makes it easier to expe
 - **Checkpointing**: Progress is saved periodically, allowing recovery from interruptions
 - **JSONL format**: Results are stored in JSONL format (one JSON object per line) for efficient storage and processing
 - **Multiple responses**: For each problem, k sample responses are generated and preserved regardless of correctness
+- **Flexible dataset handling**: Process either a specific number of problems or the entire dataset
 
 ## Supported Question Types
 
@@ -60,14 +61,22 @@ The dataset is expected to have the following fields:
 ### Step 1: Generate Model Responses
 
 ```bash
+# Process 5 problems
 python -m data_collection.run_inference --model "google/gemma-3-1b-it" --num_problems 5 --k_responses 3
+
+# Process the entire dataset
+python -m data_collection.run_inference --model "google/gemma-3-1b-it" --num_problems all --k_responses 3 
+
+# Customize batch size
+python -m data_collection.run_inference --model "google/gemma-3-1b-it" --num_problems 20 --batch_size 10
 ```
 
 Options:
 - `--model`: Model ID to use for inference (default: "google/gemma-3-1b-it")
-- `--num_problems`: Number of problems to test (default: 5)
+- `--num_problems`: Number of problems to test or 'all' for entire dataset (default: 5)
 - `--k_responses`: Number of responses to generate per problem (default: 5)
 - `--temperature`: Sampling temperature (default: 0.7)
+- `--batch_size`: Number of problems to process in each batch (default: 5)
 - `--output_dir`: Directory to save results (default: "inference_results")
 
 ### Step 2: Extract and Evaluate Answers
