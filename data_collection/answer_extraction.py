@@ -5,7 +5,6 @@ Utility module for extracting and verifying answers from model responses
 import re
 import json
 import os
-from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Union
 from math_verify import parse, verify
 
@@ -29,15 +28,27 @@ def process_results_file(input_file: str, output_file: Optional[str] = None) -> 
     Process a results file to extract and verify answers
     
     Args:
-        input_file: Path to the input JSON file with model responses
+        input_file: Path to the input JSONL file with model responses
         output_file: Path to save the processed results (None to skip saving)
         
     Returns:
         Tuple containing (processed_results, correct_count, total_responses)
     """
+    # Determine if file is JSONL or JSON format based on extension
+    is_jsonl = input_file.endswith('.jsonl')
+    
     # Load the results
-    with open(input_file, 'r') as f:
-        results = json.load(f)
+    results = []
+    if is_jsonl:
+        # Load JSONL format (one JSON object per line)
+        with open(input_file, 'r') as f:
+            for line in f:
+                if line.strip():  # Skip empty lines
+                    results.append(json.loads(line))
+    else:
+        # Load regular JSON format
+        with open(input_file, 'r') as f:
+            results = json.load(f)
         
     processed_results = []
     correct_count = 0
@@ -86,8 +97,16 @@ def process_results_file(input_file: str, output_file: Optional[str] = None) -> 
     # Save the processed results if an output file is specified
     if output_file:
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
-        with open(output_file, 'w') as f:
-            json.dump(processed_results, f, indent=2)
+        
+        # Save as JSONL if input was JSONL
+        if is_jsonl or output_file.endswith('.jsonl'):
+            with open(output_file, 'w') as f:
+                for result in processed_results:
+                    f.write(json.dumps(result) + '\n')
+        else:
+            # Save as regular JSON
+            with open(output_file, 'w') as f:
+                json.dump(processed_results, f, indent=2)
             
     return processed_results, correct_count, total_responses
 
@@ -126,7 +145,7 @@ def process_directory(input_dir: str, output_dir: Optional[str] = None) -> Dict[
     Process all result files in a directory
     
     Args:
-        input_dir: Directory containing result JSON files
+        input_dir: Directory containing result JSON or JSONL files
         output_dir: Directory to save processed results (None to skip saving)
         
     Returns:
@@ -140,7 +159,7 @@ def process_directory(input_dir: str, output_dir: Optional[str] = None) -> Dict[
     
     # Process each file in the directory
     for filename in os.listdir(input_dir):
-        if not filename.endswith('.json'):
+        if not (filename.endswith('.json') or filename.endswith('.jsonl')):
             continue
             
         input_path = os.path.join(input_dir, filename)
@@ -148,9 +167,13 @@ def process_directory(input_dir: str, output_dir: Optional[str] = None) -> Dict[
         # Determine output path if needed
         output_path = None
         if output_dir:
-            output_path = os.path.join(output_dir, f"processed_{filename}")
+            # Keep the same file extension
+            if filename.endswith('.jsonl'):
+                output_path = os.path.join(output_dir, f"processed_{filename}")
+            else:
+                output_path = os.path.join(output_dir, f"processed_{filename}")
         
-        # Extract model name from filename
+        # Extract model name from filename - works for both .json and .jsonl
         model_name = filename.split('_')[0]
         
         # Process the file
@@ -178,7 +201,7 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description="Extract and verify answers from model responses")
-    parser.add_argument("--input", "-i", required=True, help="Input file or directory to process")
+    parser.add_argument("--input", "-i", required=True, help="Input file (.json or .jsonl) or directory to process")
     parser.add_argument("--output", "-o", help="Output file or directory (optional)")
     parser.add_argument("--by-category", action="store_true", help="Show results broken down by category")
     args = parser.parse_args()

@@ -27,6 +27,13 @@ The typical workflow is a two-step process:
 
 This separation allows for more efficient processing and makes it easier to experiment with different answer extraction methods without re-running the models.
 
+## Features
+
+- **Batched processing**: Problems are processed in batches, with results saved after each batch
+- **Checkpointing**: Progress is saved periodically, allowing recovery from interruptions
+- **JSONL format**: Results are stored in JSONL format (one JSON object per line) for efficient storage and processing
+- **Multiple responses**: For each problem, k sample responses are generated and preserved regardless of correctness
+
 ## Supported Question Types
 
 The system supports two types of questions:
@@ -67,7 +74,7 @@ Options:
 
 Process a single result file:
 ```bash
-python -m data_collection.answer_extraction --input inference_results/google_gemma-3-1b-it_5problems_3k_1234567890.json
+python -m data_collection.answer_extraction --input inference_results/google_gemma-3-1b-it_5problems_3k_1234567890.jsonl
 ```
 
 Process all result files in a directory:
@@ -76,54 +83,50 @@ python -m data_collection.answer_extraction --input inference_results --output p
 ```
 
 Options:
-- `--input`, `-i`: Input file or directory to process (required)
+- `--input`, `-i`: Input file (.json or .jsonl) or directory to process (required)
 - `--output`, `-o`: Output file or directory for processed results (optional)
 - `--by-category`: Show results broken down by category
 
 ## Output Format
 
-### Inference Results Format
+### Inference Results Format (JSONL)
 ```json
-[
-  {
-    "unique_id": "question123",
-    "problem": "Problem text",
-    "is_mcq": true,
-    "choices": ["Option A", "Option B", "Option C", "Option D"],
-    "choice_index_correct": 2,
-    "explanation_correct": "Explanation of the correct answer",
-    "answer_correct": "C",
-    "category": "Mathematics",
-    "responses": [
-      {
-        "full_response": "Model's full response"
-      }
-    ]
-  }
-]
+{
+  "unique_id": "question123",
+  "problem": "Problem text",
+  "is_mcq": true,
+  "choices": ["Option A", "Option B", "Option C", "Option D"],
+  "choice_index_correct": 2,
+  "explanation_correct": "Explanation of the correct answer",
+  "answer_correct": "C",
+  "category": "Mathematics",
+  "responses": [
+    {
+      "full_response": "Model's full response"
+    }
+  ]
+}
 ```
 
-### Processed Results Format
+### Processed Results Format (JSONL)
 ```json
-[
-  {
-    "unique_id": "question123",
-    "problem": "Problem text",
-    "is_mcq": true,
-    "choices": ["Option A", "Option B", "Option C", "Option D"],
-    "choice_index_correct": 2,
-    "explanation_correct": "Explanation of the correct answer",
-    "answer_correct": "C",
-    "category": "Mathematics",
-    "responses": [
-      {
-        "full_response": "Model's full response",
-        "extracted_answer": "C",
-        "is_correct": true
-      }
-    ]
-  }
-]
+{
+  "unique_id": "question123",
+  "problem": "Problem text",
+  "is_mcq": true,
+  "choices": ["Option A", "Option B", "Option C", "Option D"],
+  "choice_index_correct": 2,
+  "explanation_correct": "Explanation of the correct answer",
+  "answer_correct": "C",
+  "category": "Mathematics",
+  "responses": [
+    {
+      "full_response": "Model's full response",
+      "extracted_answer": "C",
+      "is_correct": true
+    }
+  ]
+}
 ```
 
 ## Customization

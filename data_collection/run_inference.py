@@ -90,7 +90,7 @@ def generate_responses(llm: LLM, prompts: List[str], k_responses: int, temperatu
 
 def save_results(results: List[Dict], model_name: str, num_problems: int, 
                 k_responses: int, output_dir: str) -> str:
-    """Save results to a JSON file"""
+    """Save results to a JSONL file with checkpointing"""
     
     # Create output directory if it doesn't exist
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -99,14 +99,22 @@ def save_results(results: List[Dict], model_name: str, num_problems: int,
     cleaned_model_name = model_name.replace('/', '_')
     output_file = os.path.join(
         output_dir, 
-        f"{cleaned_model_name}_{num_problems}problems_{k_responses}k_{int(time.time())}.json"
+        f"{cleaned_model_name}_{num_problems}problems_{k_responses}k_{int(time.time())}.jsonl"
     )
     
-    # Save the results
+    # Save the results in JSONL format (one JSON object per line)
     with open(output_file, "w") as f:
-        json.dump(results, f, indent=2)
+        for result in results:
+            f.write(json.dumps(result) + "\n")
     
     return output_file
+
+def save_batch(batch: List[Dict], output_file: str, append: bool = False):
+    """Save a batch of results to the JSONL file"""
+    mode = "a" if append else "w"
+    with open(output_file, mode) as f:
+        for result in batch:
+            f.write(json.dumps(result) + "\n")
 
 def format_choices(choices: List[str]) -> List[str]:
     """Format the choices with option letters (A, B, C, etc.)"""
@@ -136,88 +144,103 @@ def main():
     
     print(f"Loaded {len(dataset)} problems")
     
-    # Prepare prompts for each problem
-    prompts = []
-    problems_info = []
-    
-    for problem in dataset:
-        # Get the question and determine if it's MCQ
-        question = problem["question"]
-        is_mcq = problem.get("choices") is not None
-        
-        # Format prompt based on question type
-        if is_mcq:
-            # Format choices with letters (A, B, C, etc.)
-            formatted_choices = format_choices(problem["choices"])
-            formatted_prompt = format_prompt(question, formatted_choices)
-        else:
-            formatted_prompt = format_prompt(question)
-        
-        # Prepend system prompt
-        final_prompt = f"{DEFAULT_SYSTEM_PROMPT}\n\n{formatted_prompt}"
-        
-        # Store all problem information
-        problems_info.append({
-            "unique_id": problem.get("unique_id", ""),
-            "problem": question,
-            "is_mcq": is_mcq,
-            "choices": problem.get("choices", None),
-            "choice_index_correct": problem.get("choice_index_correct", None),
-            "explanation_correct": problem.get("explanation_correct", ""),
-            "answer_correct": problem.get("answer_correct", ""),
-            "category": problem.get("category", "")
-        })
-        
-        prompts.append(final_prompt)
-    
     # Initialize the LLM
     print(f"Initializing model {args.model}...")
     start_time = time.time()
     
     # Disable vLLM V1 engine to avoid ZMQ socket issues
     os.environ['VLLM_USE_V1'] = '0'
+    # TODO: Make sure this is the correct max model length
     llm = LLM(model=args.model, max_model_len=2048, dtype="auto")
     
     model_init_time = time.time() - start_time
     print(f"Model initialized in {model_init_time:.2f} seconds")
     
-    # Generate responses
-    print(f"Generating {args.k_responses} responses for each problem...")
-    generation_start_time = time.time()
-    
-    responses = generate_responses(
-        llm=llm,
-        prompts=prompts,
-        k_responses=args.k_responses,
-        temperature=args.temperature
+    # Create a unique output file path
+    cleaned_model_name = args.model.replace('/', '_')
+    output_file = os.path.join(
+        args.output_dir, 
+        f"{cleaned_model_name}_{len(dataset)}problems_{args.k_responses}k_{int(time.time())}.jsonl"
     )
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
-    generation_time = time.time() - generation_start_time
-    print(f"Generation completed in {generation_time:.2f} seconds")
+    # Process in batches for checkpointing
+    batch_size = 5  # Process 5 problems at a time
+    first_batch = True
     
-    # Combine problem info with responses
-    results = []
-    for i, (problem_info, response_set) in enumerate(zip(problems_info, responses)):
-        results.append({
-            "unique_id": problem_info["unique_id"],
-            "problem": problem_info["problem"],
-            "is_mcq": problem_info["is_mcq"],
-            "choices": problem_info["choices"],
-            "choice_index_correct": problem_info["choice_index_correct"],
-            "explanation_correct": problem_info["explanation_correct"],
-            "answer_correct": problem_info["answer_correct"],
-            "category": problem_info["category"],
-            "responses": response_set["responses"]
-        })
-    
-    # Save results
-    output_file = save_results(
-        results=results,
-        model_name=args.model,
-        num_problems=len(dataset),
-        k_responses=args.k_responses,
-        output_dir=args.output_dir
-    )
+    for batch_start in range(0, len(dataset), batch_size):
+        batch_end = min(batch_start + batch_size, len(dataset))
+        print(f"Processing problems {batch_start+1}-{batch_end} of {len(dataset)}...")
+        
+        # Prepare prompts for this batch
+        batch_prompts = []
+        batch_problems_info = []
+        
+        for i in range(batch_start, batch_end):
+            problem = dataset[i]
+            
+            # Get the question and determine if it's MCQ
+            question = problem["question"]
+            is_mcq = problem.get("choices") is not None
+            
+            # Format prompt based on question type
+            if is_mcq:
+                # Format choices with letters (A, B, C, etc.)
+                formatted_choices = format_choices(problem["choices"])
+                formatted_prompt = format_prompt(question, formatted_choices)
+            else:
+                formatted_prompt = format_prompt(question)
+            
+            # Prepend system prompt
+            final_prompt = f"{DEFAULT_SYSTEM_PROMPT}\n\n{formatted_prompt}"
+            
+            # Store all problem information
+            batch_problems_info.append({
+                "unique_id": problem.get("unique_id", ""),
+                "problem": question,
+                "is_mcq": is_mcq,
+                "choices": problem.get("choices", None),
+                "choice_index_correct": problem.get("choice_index_correct", None),
+                "explanation_correct": problem.get("explanation_correct", ""),
+                "answer_correct": problem.get("answer_correct", ""),
+                "category": problem.get("category", "")
+            })
+            
+            batch_prompts.append(final_prompt)
+        
+        # Generate responses for this batch
+        batch_start_time = time.time()
+        
+        batch_responses = generate_responses(
+            llm=llm,
+            prompts=batch_prompts,
+            k_responses=args.k_responses,
+            temperature=args.temperature
+        )
+        
+        batch_time = time.time() - batch_start_time
+        print(f"Batch completed in {batch_time:.2f} seconds")
+        
+        # Combine problem info with responses for this batch
+        batch_results = []
+        for problem_info, response_set in zip(batch_problems_info, batch_responses):
+            batch_results.append({
+                "unique_id": problem_info["unique_id"],
+                "problem": problem_info["problem"],
+                "is_mcq": problem_info["is_mcq"],
+                "choices": problem_info["choices"],
+                "choice_index_correct": problem_info["choice_index_correct"],
+                "explanation_correct": problem_info["explanation_correct"],
+                "answer_correct": problem_info["answer_correct"],
+                "category": problem_info["category"],
+                "responses": response_set["responses"]
+            })
+        
+        # Save this batch as a checkpoint
+        save_batch(batch_results, output_file, append=not first_batch)
+        first_batch = False
+        
+        print(f"Checkpoint saved, {batch_end}/{len(dataset)} problems processed")
     
     print(f"Results saved to {output_file}")
     print("\nTo extract and analyze answers, use the answer_extraction.py script:")
