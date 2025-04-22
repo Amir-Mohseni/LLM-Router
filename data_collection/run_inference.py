@@ -8,8 +8,8 @@ from tqdm import tqdm
 from pathlib import Path
 import jinja2
 
-# Import vLLM for efficient inference
-from vllm import LLM, SamplingParams
+# Import OpenAI client
+from openai import OpenAI
 
 # Import dataset handling
 from datasets import load_dataset
@@ -18,7 +18,8 @@ from datasets import load_dataset
 from config import (
     DEFAULT_MODEL, DATASET_NAME, DATASET_SPLIT,
     NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR,
-    PROMPT_BATCH_SIZE, PROBLEM_BATCH_SIZE
+    PROMPT_BATCH_SIZE, PROBLEM_BATCH_SIZE,
+    API_MODE, API_BASE, API_KEY, MODEL_NAME
 )
 from prompts import (
     MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT,
@@ -27,8 +28,8 @@ from prompts import (
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run inference with LLMs on math problems")
-    parser.add_argument("--model", type=str, default=DEFAULT_MODEL, 
-                        help=f"Model to use for inference (default: {DEFAULT_MODEL})")
+    parser.add_argument("--model", type=str, default=MODEL_NAME, 
+                        help=f"Model to use for inference (default: {MODEL_NAME})")
     parser.add_argument("--num_problems", type=str, default=str(NUM_PROBLEMS),
                         help=f"Number of problems to test or 'all' for entire dataset (default: {NUM_PROBLEMS})")
     parser.add_argument("--k_responses", type=int, default=K_RESPONSES,
@@ -41,6 +42,12 @@ def parse_args():
                         help=f"Directory to save results (default: {OUTPUT_DIR})")
     parser.add_argument("--batch_size", type=int, default=PROBLEM_BATCH_SIZE,
                         help=f"Number of problems to process in each batch (default: {PROBLEM_BATCH_SIZE})")
+    parser.add_argument("--api_mode", type=str, choices=["local", "remote"], default=API_MODE,
+                        help=f"API mode to use (local: vLLM server, remote: OpenAI API) (default: {API_MODE})")
+    parser.add_argument("--api_base", type=str, default=API_BASE,
+                        help=f"Base URL for the API (default: {API_BASE})")
+    parser.add_argument("--api_key", type=str, default=API_KEY,
+                        help=f"API key (default: {API_KEY})")
     return parser.parse_args()
 
 def format_mcq_prompt(question: str, choices: List[str]) -> str:
@@ -64,38 +71,53 @@ def format_prompt(question: str, choices: Optional[List[str]] = None) -> str:
         # For non-MCQ questions, use the regular prompt with proper Jinja rendering
         return jinja_env.from_string(MATH_PROMPT).render(question=question)
 
-def generate_responses(llm: LLM, prompts: List[str], k_responses: int, temperature: float, max_tokens: int) -> List[Dict]:
-    """Generate k responses for each prompt using vLLM"""
-    # Set sampling parameters for diverse responses
-    sampling_params = SamplingParams(
-        temperature=temperature,
-        max_tokens=max_tokens,
-        n=k_responses  # Generate k responses per prompt
-    )
+def generate_responses(client: OpenAI, prompts: List[str], k_responses: int, temperature: float, max_tokens: int, model_name: str) -> List[Dict]:
+    """Generate k responses for each prompt using the OpenAI API client with n=k parameter"""
     
     # Generate responses for each prompt
     all_responses = []
-    batch_size = PROMPT_BATCH_SIZE  # Use the batch size from config
+    
+    # Get the batch size for prompt processing
+    batch_size = PROMPT_BATCH_SIZE
     
     for i in tqdm(range(0, len(prompts), batch_size), desc="Processing prompt batches"):
         batch_prompts = prompts[i:i+batch_size]
-        batch_outputs = llm.generate(batch_prompts, sampling_params)
+        batch_responses = []
         
-        for prompt, output in zip(batch_prompts, batch_outputs):
-            responses = []
-            # Ensure we're capturing all k responses from the output
-            for generated_output in output.outputs:
-                generated_text = generated_output.text.strip()
+        # Process each prompt in the batch, generating all k responses at once
+        for prompt_idx, prompt in enumerate(batch_prompts):
+            try:
+                # Use 'n' parameter to generate k responses in one API call
+                completion = client.completions.create(
+                    model=model_name,
+                    prompt=prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    n=k_responses
+                )
                 
-                # Store the full response text
-                responses.append({
-                    "full_response": generated_text
+                # Extract and store all responses
+                responses = []
+                for choice in completion.choices:
+                    responses.append({
+                        "full_response": choice.text.strip()
+                    })
+                
+                batch_responses.append({
+                    "prompt": prompt,
+                    "responses": responses
                 })
-            
-            all_responses.append({
-                "prompt": prompt,
-                "responses": responses
-            })
+                
+            except Exception as e:
+                print(f"Error generating responses for prompt {i+prompt_idx}: {e}")
+                # Add empty responses to maintain count
+                responses = [{"full_response": f"Error generating response: {str(e)}"} for _ in range(k_responses)]
+                batch_responses.append({
+                    "prompt": prompt,
+                    "responses": responses
+                })
+        
+        all_responses.extend(batch_responses)
     
     return all_responses
 
@@ -135,9 +157,17 @@ def main():
     # Parse command line arguments
     args = parse_args()
     
+    # Set up API client with the specified settings
+    api_base = args.api_base
+    api_key = args.api_key
+    model_name = args.model
+    api_mode = args.api_mode
+    
     # Log the configuration
     print(f"Running inference with the following settings:")
-    print(f"  Model: {args.model}")
+    print(f"  API Mode: {api_mode}")
+    print(f"  API Base URL: {api_base}")
+    print(f"  Model: {model_name}")
     print(f"  Dataset: {DATASET_NAME} (split: {DATASET_SPLIT})")
     
     # Handle 'all' or specific number of problems
@@ -174,21 +204,21 @@ def main():
     
     print(f"Loaded {len(dataset)} problems")
     
-    # Initialize the LLM
-    print(f"Initializing model {args.model}...")
+    # Initialize the OpenAI client
+    print(f"Initializing OpenAI client...")
     start_time = time.time()
     
-    # Disable vLLM V1 engine to avoid ZMQ socket issues
-    os.environ['VLLM_USE_V1'] = '0'
-    # Use MAX_TOKENS from config file for the model's context length
-    print(f"  Max tokens: {args.max_tokens}")
-    llm = LLM(model=args.model, max_model_len=args.max_tokens, dtype="auto")
+    # Create OpenAI client
+    client = OpenAI(api_key=api_key, base_url=api_base)
     
     model_init_time = time.time() - start_time
-    print(f"Model initialized in {model_init_time:.2f} seconds")
+    print(f"Client initialized in {model_init_time:.2f} seconds")
+    
+    if api_mode == "local":
+        print(f"NOTE: Make sure vLLM server is running with command: vllm serve {model_name}")
     
     # Create a unique output file path
-    cleaned_model_name = args.model.replace('/', '_')
+    cleaned_model_name = model_name.replace('/', '_')
     dataset_size_str = "full" if num_problems_str == "all" else f"{len(dataset)}"
     output_file = os.path.join(
         args.output_dir, 
@@ -244,11 +274,12 @@ def main():
         batch_start_time = time.time()
         
         batch_responses = generate_responses(
-            llm=llm,
+            client=client,
             prompts=batch_prompts,
             k_responses=args.k_responses,
             temperature=args.temperature,
-            max_tokens=args.max_tokens
+            max_tokens=args.max_tokens,
+            model_name=model_name
         )
         
         batch_time = time.time() - batch_start_time

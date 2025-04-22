@@ -9,11 +9,20 @@ This directory contains tools for collecting and analyzing model responses to pr
    pip install -r requirements.txt
    ```
 
-2. Make sure you have a valid Hugging Face API token to access the models.
+2. Configure API settings in `config.py` if you want to use remote APIs.
+
+3. Environment Variables:
+   ```bash
+   # Copy the example environment file
+   cp env.example .env
+   
+   # Edit the .env file with your API keys and preferred settings
+   nano .env
+   ```
 
 ## File Structure
 
-- `config.py`: Configuration settings for datasets, models, generation parameters and batching
+- `config.py`: Configuration settings for datasets, models, generation parameters, API settings and batching
 - `prompts.py`: Prompt templates for generating responses from models
 - `run_inference.py`: Main script for running inference on a single model
 - `answer_extraction.py`: Script for extracting and evaluating answers from the model outputs
@@ -29,6 +38,8 @@ This separation allows for more efficient processing and makes it easier to expe
 
 ## Features
 
+- **Unified API interface**: Single API approach for both local (vLLM) and remote (OpenAI) services
+- **Optimized parallelization**: Uses batched requests with n=k parameter for efficient response generation
 - **Batched processing**: Problems are processed in batches, with results saved after each batch
 - **Checkpointing**: Progress is saved periodically, allowing recovery from interruptions
 - **JSONL format**: Results are stored in JSONL format (one JSON object per line) for efficient storage and processing
@@ -58,36 +69,62 @@ The dataset is expected to have the following fields:
 
 ## Usage
 
-### Step 1: Generate Model Responses
+### API Modes
+
+The script supports two API modes which share the same configuration format:
+
+1. **Local mode**: Uses a local vLLM server (requires starting the server separately)
+2. **Remote mode**: Uses remote APIs like OpenAI (requires API key)
+
+You can configure the API settings in `config.py` or use command line arguments.
+
+### Local Mode Setup (Default)
+
+Before running the inference script in local mode, start the vLLM server:
 
 ```bash
-# Process 5 problems
-python -m data_collection.run_inference --model "google/gemma-3-1b-it" --num_problems 5 --k_responses 3
+# Start the vLLM server with your model
+vllm serve meta-llama/Llama-3.2-1B
+```
 
-# Process the entire dataset
-python -m data_collection.run_inference --model "google/gemma-3-1b-it" --num_problems all --k_responses 3 
+The server will be available at the URL specified in config.py (default: http://localhost:8000/v1).
 
-# Customize batch size
-python -m data_collection.run_inference --model "google/gemma-3-1b-it" --num_problems 20 --batch_size 10
+### Generate Model Responses
 
-# Use custom max token length
-python -m data_collection.run_inference --model "google/gemma-3-1b-it" --max_tokens 4096
+```bash
+# Basic usage with default settings
+python -m data_collection.run_inference
+
+# Local API mode with custom model
+python -m data_collection.run_inference --model "meta-llama/Llama-3.2-1B"
+
+# Remote API mode
+python -m data_collection.run_inference --api_mode remote --model "gpt-3.5-turbo-instruct"
+
+# Customize batch size and responses per problem
+python -m data_collection.run_inference --batch_size 10 --k_responses 3
+
+# Custom API settings
+python -m data_collection.run_inference --api_base "http://localhost:9000/v1" --api_key "your-api-key-here"
 ```
 
 Options:
 - `--model`: Model ID to use for inference (default from config.py)
+- `--api_mode`: API mode to use (local or remote, default from config.py)
+- `--api_base`: Base URL for the API (default from config.py)
+- `--api_key`: API key (default from config.py)
 - `--num_problems`: Number of problems to test or 'all' for entire dataset (default from config.py)
 - `--k_responses`: Number of responses to generate per problem (default from config.py)
 - `--temperature`: Sampling temperature (default from config.py)
-- `--max_tokens`: Maximum number of tokens for generation and model context (default from config.py)
+- `--max_tokens`: Maximum number of tokens for generation (default from config.py)
 - `--batch_size`: Number of problems to process in each batch (default from config.py)
 - `--output_dir`: Directory to save results (default from config.py)
 
-### Step 2: Extract and Evaluate Answers
+### Extract and Evaluate Answers
 
 Process a single result file:
 ```bash
-python -m data_collection.answer_extraction --input inference_results/google_gemma-3-1b-it_5problems_3k_1234567890.jsonl
+python -m data_collection.answer_extraction --input inference_results/model_name_5problems_3k_1234567890.jsonl
 ```
 
 Process all result files in a directory:
@@ -146,6 +183,6 @@ Options:
 
 You can modify the following files to customize the behavior:
 
-- `config.py`: Change default models, dataset, batching parameters, etc.
+- `config.py`: Change default models, API settings, dataset, batching parameters, etc.
 - `prompts.py`: Modify the prompt templates for both MCQ and non-MCQ questions
 - `answer_extraction.py`: Customize answer extraction and evaluation methods 
