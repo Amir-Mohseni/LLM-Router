@@ -14,4 +14,8 @@ TEMPERATURE = 0.7  # Sampling temperature for diversity
 MAX_TOKENS = 2048  # Maximum tokens per response (for non-reasoning models -> 2048 and for reasoning models -> 4096)
 
 # Output settings
-OUTPUT_DIR = "data_collection/inference_results" 
+OUTPUT_DIR = "data_collection/inference_results"
+
+# Batching settings
+PROMPT_BATCH_SIZE = 8  # Number of prompts to process at once in vLLM
+PROBLEM_BATCH_SIZE = 5  # Number of problems to process in each batch for checkpointing 

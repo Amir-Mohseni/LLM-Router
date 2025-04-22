@@ -17,9 +17,13 @@ from datasets import load_dataset
 # Import local modules
 from config import (
     DEFAULT_MODEL, DATASET_NAME, DATASET_SPLIT,
-    NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR
+    NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR,
+    PROMPT_BATCH_SIZE, PROBLEM_BATCH_SIZE
 )
-from prompts import MATH_PROMPT, MCQ_PROMPT, DEFAULT_SYSTEM_PROMPT
+from prompts import (
+    MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT,
+    env as jinja_env
+)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run inference with LLMs on math problems")
@@ -31,20 +35,20 @@ def parse_args():
                         help=f"Number of responses per problem (default: {K_RESPONSES})")
     parser.add_argument("--temperature", type=float, default=TEMPERATURE,
                         help=f"Sampling temperature (default: {TEMPERATURE})")
+    parser.add_argument("--max_tokens", type=int, default=MAX_TOKENS,
+                        help=f"Maximum number of tokens for generation and model context (default: {MAX_TOKENS})")
     parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR,
                         help=f"Directory to save results (default: {OUTPUT_DIR})")
-    parser.add_argument("--batch_size", type=int, default=5,
-                        help="Number of problems to process in each batch (default: 5)")
+    parser.add_argument("--batch_size", type=int, default=PROBLEM_BATCH_SIZE,
+                        help=f"Number of problems to process in each batch (default: {PROBLEM_BATCH_SIZE})")
     return parser.parse_args()
 
 def format_mcq_prompt(question: str, choices: List[str]) -> str:
     """Format an MCQ question using the template from prompts.py"""
-    # Use Jinja2 to handle the template with the for loop
-    env = jinja2.Environment()
-    template = env.from_string(MCQ_PROMPT)
+    # Use the environment from prompts.py that has all needed filters
     
     # Render the template with the question and choices
-    formatted_prompt = template.render(
+    formatted_prompt = jinja_env.from_string(MCQ_PROMPT_TEMPLATE).render(
         question=question,
         choices=choices
     )
@@ -57,36 +61,41 @@ def format_prompt(question: str, choices: Optional[List[str]] = None) -> str:
     if choices:
         return format_mcq_prompt(question, choices)
     else:
-        # For non-MCQ questions, use the regular prompt
-        return MATH_PROMPT.replace("{{ question }}", question)
+        # For non-MCQ questions, use the regular prompt with proper Jinja rendering
+        return jinja_env.from_string(MATH_PROMPT).render(question=question)
 
-def generate_responses(llm: LLM, prompts: List[str], k_responses: int, temperature: float) -> List[Dict]:
+def generate_responses(llm: LLM, prompts: List[str], k_responses: int, temperature: float, max_tokens: int) -> List[Dict]:
     """Generate k responses for each prompt using vLLM"""
     # Set sampling parameters for diverse responses
     sampling_params = SamplingParams(
         temperature=temperature,
-        max_tokens=MAX_TOKENS,
+        max_tokens=max_tokens,
         n=k_responses  # Generate k responses per prompt
     )
     
     # Generate responses for each prompt
     all_responses = []
-    for _, prompt in enumerate(tqdm(prompts, desc="Processing prompts")):
-        outputs = llm.generate(prompt, sampling_params)
+    batch_size = PROMPT_BATCH_SIZE  # Use the batch size from config
+    
+    for i in tqdm(range(0, len(prompts), batch_size), desc="Processing prompt batches"):
+        batch_prompts = prompts[i:i+batch_size]
+        batch_outputs = llm.generate(batch_prompts, sampling_params)
         
-        responses = []
-        for output in outputs:
-            generated_text = output.outputs[0].text.strip()
+        for prompt, output in zip(batch_prompts, batch_outputs):
+            responses = []
+            # Ensure we're capturing all k responses from the output
+            for generated_output in output.outputs:
+                generated_text = generated_output.text.strip()
+                
+                # Store the full response text
+                responses.append({
+                    "full_response": generated_text
+                })
             
-            # Store just the full response text without extraction
-            responses.append({
-                "full_response": generated_text
+            all_responses.append({
+                "prompt": prompt,
+                "responses": responses
             })
-        
-        all_responses.append({
-            "prompt": prompt,
-            "responses": responses
-        })
     
     return all_responses
 
@@ -111,11 +120,10 @@ def save_results(results: List[Dict], model_name: str, num_problems: int,
     
     return output_file
 
-def save_batch(batch: List[Dict], output_file: str, append: bool = False):
-    """Save a batch of results to the JSONL file"""
-    mode = "a" if append else "w"
-    with open(output_file, mode) as f:
-        for result in batch:
+def save_batch(batch_results: List[Dict], output_file: str):
+    """Save a batch of results to the output file in JSONL format."""
+    with open(output_file, "a") as f:
+        for result in batch_results:
             f.write(json.dumps(result) + "\n")
 
 def format_choices(choices: List[str]) -> List[str]:
@@ -152,6 +160,7 @@ def main():
     print(f"  Problems: {num_problems_str}")
     print(f"  Responses per problem: {args.k_responses}")
     print(f"  Temperature: {args.temperature}")
+    print(f"  Max tokens: {args.max_tokens}")
     print(f"  Batch size: {args.batch_size}")
     print(f"  Output directory: {args.output_dir}")
     
@@ -171,8 +180,9 @@ def main():
     
     # Disable vLLM V1 engine to avoid ZMQ socket issues
     os.environ['VLLM_USE_V1'] = '0'
-    # TODO: Make sure this is the correct max model length
-    llm = LLM(model=args.model, max_model_len=2048, dtype="auto")
+    # Use MAX_TOKENS from config file for the model's context length
+    print(f"  Max tokens: {args.max_tokens}")
+    llm = LLM(model=args.model, max_model_len=args.max_tokens, dtype="auto")
     
     model_init_time = time.time() - start_time
     print(f"Model initialized in {model_init_time:.2f} seconds")
@@ -188,7 +198,7 @@ def main():
     
     # Process in batches for checkpointing
     batch_size = args.batch_size
-    first_batch = True
+    batch_results = []
     
     for batch_start in range(0, len(dataset), batch_size):
         batch_end = min(batch_start + batch_size, len(dataset))
@@ -237,14 +247,14 @@ def main():
             llm=llm,
             prompts=batch_prompts,
             k_responses=args.k_responses,
-            temperature=args.temperature
+            temperature=args.temperature,
+            max_tokens=args.max_tokens
         )
         
         batch_time = time.time() - batch_start_time
         print(f"Batch completed in {batch_time:.2f} seconds")
         
         # Combine problem info with responses for this batch
-        batch_results = []
         for problem_info, response_set in zip(batch_problems_info, batch_responses):
             batch_results.append({
                 "unique_id": problem_info["unique_id"],
@@ -259,10 +269,12 @@ def main():
             })
         
         # Save this batch as a checkpoint
-        save_batch(batch_results, output_file, append=not first_batch)
-        first_batch = False
+        save_batch(batch_results, output_file)
         
         print(f"Checkpoint saved, {batch_end}/{len(dataset)} problems processed")
+        
+        # Clear the batch results for the next batch
+        batch_results = []
     
     print(f"Results saved to {output_file}")
     print("\nTo extract and analyze answers, use the answer_extraction.py script:")

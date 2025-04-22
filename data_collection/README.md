@@ -13,7 +13,7 @@ This directory contains tools for collecting and analyzing model responses to pr
 
 ## File Structure
 
-- `config.py`: Configuration settings for datasets, models, and generation parameters
+- `config.py`: Configuration settings for datasets, models, generation parameters and batching
 - `prompts.py`: Prompt templates for generating responses from models
 - `run_inference.py`: Main script for running inference on a single model
 - `answer_extraction.py`: Script for extracting and evaluating answers from the model outputs
@@ -69,15 +69,19 @@ python -m data_collection.run_inference --model "google/gemma-3-1b-it" --num_pro
 
 # Customize batch size
 python -m data_collection.run_inference --model "google/gemma-3-1b-it" --num_problems 20 --batch_size 10
+
+# Use custom max token length
+python -m data_collection.run_inference --model "google/gemma-3-1b-it" --max_tokens 4096
 ```
 
 Options:
-- `--model`: Model ID to use for inference (default: "google/gemma-3-1b-it")
-- `--num_problems`: Number of problems to test or 'all' for entire dataset (default: 5)
-- `--k_responses`: Number of responses to generate per problem (default: 5)
-- `--temperature`: Sampling temperature (default: 0.7)
-- `--batch_size`: Number of problems to process in each batch (default: 5)
-- `--output_dir`: Directory to save results (default: "inference_results")
+- `--model`: Model ID to use for inference (default from config.py)
+- `--num_problems`: Number of problems to test or 'all' for entire dataset (default from config.py)
+- `--k_responses`: Number of responses to generate per problem (default from config.py)
+- `--temperature`: Sampling temperature (default from config.py)
+- `--max_tokens`: Maximum number of tokens for generation and model context (default from config.py)
+- `--batch_size`: Number of problems to process in each batch (default from config.py)
+- `--output_dir`: Directory to save results (default from config.py)
 
 ### Step 2: Extract and Evaluate Answers
 
@@ -92,7 +96,7 @@ python -m data_collection.answer_extraction --input inference_results --output p
 ```
 
 Options:
-- `--input`, `-i`: Input file (.json or .jsonl) or directory to process (required)
+- `--input`, `-i`: Input JSONL file or directory to process (required)
 - `--output`, `-o`: Output file or directory for processed results (optional)
 - `--by-category`: Show results broken down by category
 
@@ -142,6 +146,6 @@ Options:
 
 You can modify the following files to customize the behavior:
 
-- `config.py`: Change default models, dataset, number of problems, etc.
+- `config.py`: Change default models, dataset, batching parameters, etc.
 - `prompts.py`: Modify the prompt templates for both MCQ and non-MCQ questions
 - `answer_extraction.py`: Customize answer extraction and evaluation methods 

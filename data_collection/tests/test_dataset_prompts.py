@@ -5,7 +5,6 @@ from an actual dataset
 """
 import sys
 import json
-import jinja2
 from pathlib import Path
 
 # Add parent directory to path to import modules
@@ -15,7 +14,10 @@ if parent_dir not in sys.path:
 
 from datasets import load_dataset
 from data_collection.config import DATASET_NAME, DATASET_SPLIT
-from data_collection.prompts import MCQ_PROMPT, MATH_PROMPT, DEFAULT_SYSTEM_PROMPT
+from data_collection.prompts import (
+    MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT,
+    env as jinja_env
+)
 
 def format_mcq_choices(choices):
     """Format choices with option letters (A, B, C, etc.)"""
@@ -24,18 +26,17 @@ def format_mcq_choices(choices):
 
 def format_mcq_prompt(question, choices):
     """Format an MCQ question using Jinja2 templating"""
-    env = jinja2.Environment()
-    template = env.from_string(MCQ_PROMPT)
-    
-    formatted_prompt = template.render(
+    # Use the environment from prompts.py
+    formatted_prompt = jinja_env.from_string(MCQ_PROMPT_TEMPLATE).render(
         question=question,
         choices=choices
     )
     return formatted_prompt
 
 def format_math_prompt(question):
-    """Format a non-MCQ question"""
-    return MATH_PROMPT.replace("{{ question }}", question)
+    """Format a non-MCQ question using Jinja2 templating"""
+    # Use the environment from prompts.py
+    return jinja_env.from_string(MATH_PROMPT).render(question=question)
 
 def main():
     # Load a sample of the dataset
