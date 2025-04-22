@@ -3,13 +3,14 @@ import os
 import json
 import time
 import argparse
+import asyncio
 from typing import List, Dict, Any, Optional
 from tqdm import tqdm
 from pathlib import Path
 import jinja2
 
 # Import OpenAI client
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 # Import dataset handling
 from datasets import load_dataset
@@ -48,6 +49,8 @@ def parse_args():
                         help=f"Base URL for the API (default: {API_BASE})")
     parser.add_argument("--api_key", type=str, default=API_KEY,
                         help=f"API key (default: {API_KEY})")
+    parser.add_argument("--max_concurrent", type=int, default=10,
+                        help="Maximum number of concurrent API requests (default: 10)")
     return parser.parse_args()
 
 def format_mcq_prompt(question: str, choices: List[str]) -> str:
@@ -71,55 +74,76 @@ def format_prompt(question: str, choices: Optional[List[str]] = None) -> str:
         # For non-MCQ questions, use the regular prompt with proper Jinja rendering
         return jinja_env.from_string(MATH_PROMPT).render(question=question)
 
-def generate_responses(client: OpenAI, prompts: List[str], k_responses: int, temperature: float, max_tokens: int, model_name: str) -> List[Dict]:
-    """Generate k responses for each prompt using the OpenAI API client with n=k parameter"""
-    
-    # Generate responses for each prompt
-    all_responses = []
-    
-    # Get the batch size for prompt processing
-    batch_size = PROMPT_BATCH_SIZE
-    
-    for i in tqdm(range(0, len(prompts), batch_size), desc="Processing prompt batches"):
-        batch_prompts = prompts[i:i+batch_size]
-        batch_responses = []
-        
-        # Process each prompt in the batch, generating all k responses at once
-        for prompt_idx, prompt in enumerate(batch_prompts):
-            try:
-                # Use 'n' parameter to generate k responses in one API call
-                completion = client.completions.create(
-                    model=model_name,
-                    prompt=prompt,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    n=k_responses
-                )
-                
-                # Extract and store all responses
-                responses = []
-                for choice in completion.choices:
-                    responses.append({
-                        "full_response": choice.text.strip()
-                    })
-                
-                batch_responses.append({
-                    "prompt": prompt,
-                    "responses": responses
+async def async_generate_response(client, prompt, model_name, max_tokens, temperature, k_responses, prompt_idx, semaphore):
+    """Generate responses for a single prompt using the OpenAI API client asynchronously"""
+    async with semaphore:
+        try:
+            # Use 'n' parameter to generate k responses in one API call
+            completion = await client.completions.create(
+                model=model_name,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                n=k_responses
+            )
+            
+            # Extract and store all responses
+            responses = []
+            for choice in completion.choices:
+                responses.append({
+                    "full_response": choice.text.strip()
                 })
-                
-            except Exception as e:
-                print(f"Error generating responses for prompt {i+prompt_idx}: {e}")
-                # Add empty responses to maintain count
-                responses = [{"full_response": f"Error generating response: {str(e)}"} for _ in range(k_responses)]
-                batch_responses.append({
-                    "prompt": prompt,
-                    "responses": responses
-                })
-        
-        all_responses.extend(batch_responses)
+            
+            return {
+                "prompt": prompt,
+                "responses": responses,
+                "success": True,
+                "prompt_idx": prompt_idx
+            }
+            
+        except Exception as e:
+            print(f"Error generating responses for prompt {prompt_idx}: {e}")
+            # Add empty responses to maintain count
+            responses = [{"full_response": f"Error generating response: {str(e)}"} for _ in range(k_responses)]
+            return {
+                "prompt": prompt,
+                "responses": responses,
+                "success": False,
+                "prompt_idx": prompt_idx
+            }
+
+async def generate_responses_async(client, prompts, k_responses, temperature, max_tokens, model_name, max_concurrent):
+    """Generate k responses for each prompt using the OpenAI API client with efficient parallelization"""
     
-    return all_responses
+    # Create a semaphore to limit the number of concurrent requests
+    semaphore = asyncio.Semaphore(max_concurrent)
+    
+    # Generate responses for each prompt in parallel
+    tasks = []
+    for i, prompt in enumerate(prompts):
+        task = async_generate_response(
+            client=client,
+            prompt=prompt,
+            model_name=model_name,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            k_responses=k_responses,
+            prompt_idx=i,
+            semaphore=semaphore
+        )
+        tasks.append(task)
+    
+    # Wait for all tasks to complete
+    responses = await asyncio.gather(*tasks)
+    
+    # Sort responses by prompt index to maintain order
+    responses.sort(key=lambda x: x["prompt_idx"])
+    
+    # Return the responses (without the prompt_idx and success fields)
+    return [{
+        "prompt": response["prompt"],
+        "responses": response["responses"]
+    } for response in responses]
 
 def save_results(results: List[Dict], model_name: str, num_problems: int, 
                 k_responses: int, output_dir: str) -> str:
@@ -153,7 +177,7 @@ def format_choices(choices: List[str]) -> List[str]:
     option_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     return [f"{option_letters[i]}. {choice}" for i, choice in enumerate(choices)]
 
-def main():
+async def main_async():
     # Parse command line arguments
     args = parse_args()
     
@@ -162,6 +186,7 @@ def main():
     api_key = args.api_key
     model_name = args.model
     api_mode = args.api_mode
+    max_concurrent = args.max_concurrent
     
     # Log the configuration
     print(f"Running inference with the following settings:")
@@ -169,6 +194,7 @@ def main():
     print(f"  API Base URL: {api_base}")
     print(f"  Model: {model_name}")
     print(f"  Dataset: {DATASET_NAME} (split: {DATASET_SPLIT})")
+    print(f"  Max concurrent requests: {max_concurrent}")
     
     # Handle 'all' or specific number of problems
     if args.num_problems.lower() == 'all':
@@ -204,12 +230,12 @@ def main():
     
     print(f"Loaded {len(dataset)} problems")
     
-    # Initialize the OpenAI client
-    print(f"Initializing OpenAI client...")
+    # Initialize the async OpenAI client
+    print(f"Initializing async OpenAI client...")
     start_time = time.time()
     
-    # Create OpenAI client
-    client = OpenAI(api_key=api_key, base_url=api_base)
+    # Create OpenAI client with async support
+    client = AsyncOpenAI(api_key=api_key, base_url=api_base)
     
     model_init_time = time.time() - start_time
     print(f"Client initialized in {model_init_time:.2f} seconds")
@@ -228,7 +254,6 @@ def main():
     
     # Process in batches for checkpointing
     batch_size = args.batch_size
-    batch_results = []
     
     for batch_start in range(0, len(dataset), batch_size):
         batch_end = min(batch_start + batch_size, len(dataset))
@@ -270,22 +295,25 @@ def main():
             
             batch_prompts.append(final_prompt)
         
-        # Generate responses for this batch
+        # Generate responses for this batch using async processing
         batch_start_time = time.time()
         
-        batch_responses = generate_responses(
+        print(f"Generating responses for {len(batch_prompts)} prompts with up to {max_concurrent} concurrent requests...")
+        batch_responses = await generate_responses_async(
             client=client,
             prompts=batch_prompts,
             k_responses=args.k_responses,
             temperature=args.temperature,
             max_tokens=args.max_tokens,
-            model_name=model_name
+            model_name=model_name,
+            max_concurrent=max_concurrent
         )
         
         batch_time = time.time() - batch_start_time
-        print(f"Batch completed in {batch_time:.2f} seconds")
+        print(f"Batch completed in {batch_time:.2f} seconds ({len(batch_prompts) / batch_time:.2f} prompts/second)")
         
         # Combine problem info with responses for this batch
+        batch_results = []
         for problem_info, response_set in zip(batch_problems_info, batch_responses):
             batch_results.append({
                 "unique_id": problem_info["unique_id"],
@@ -303,13 +331,14 @@ def main():
         save_batch(batch_results, output_file)
         
         print(f"Checkpoint saved, {batch_end}/{len(dataset)} problems processed")
-        
-        # Clear the batch results for the next batch
-        batch_results = []
     
     print(f"Results saved to {output_file}")
     print("\nTo extract and analyze answers, use the answer_extraction.py script:")
     print(f"python -m data_collection.answer_extraction --input {output_file}")
+
+def main():
+    """Main entry point that sets up the asyncio event loop"""
+    asyncio.run(main_async())
 
 if __name__ == "__main__":
     main() 

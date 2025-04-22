@@ -38,6 +38,7 @@ This separation allows for more efficient processing and makes it easier to expe
 
 ## Features
 
+- **Asynchronous processing**: Efficient parallel API calls for maximum throughput
 - **Unified API interface**: Single API approach for both local (vLLM) and remote (OpenAI) services
 - **Optimized parallelization**: Uses batched requests with n=k parameter for efficient response generation
 - **Batched processing**: Problems are processed in batches, with results saved after each batch
@@ -104,6 +105,9 @@ python -m data_collection.run_inference --api_mode remote --model "gpt-3.5-turbo
 # Customize batch size and responses per problem
 python -m data_collection.run_inference --batch_size 10 --k_responses 3
 
+# Control parallel processing (higher values = more throughput but higher resource usage)
+python -m data_collection.run_inference --max_concurrent 20
+
 # Custom API settings
 python -m data_collection.run_inference --api_base "http://localhost:9000/v1" --api_key "your-api-key-here"
 ```
@@ -119,6 +123,7 @@ Options:
 - `--max_tokens`: Maximum number of tokens for generation (default from config.py)
 - `--batch_size`: Number of problems to process in each batch (default from config.py)
 - `--output_dir`: Directory to save results (default from config.py)
+- `--max_concurrent`: Maximum number of concurrent API requests (default: 10)
 
 ### Extract and Evaluate Answers
 
@@ -178,6 +183,10 @@ Options:
   ]
 }
 ```
+
+## Performance Optimization
+
+The code uses asynchronous processing to make multiple API calls concurrently, greatly improving throughput. You can adjust the level of parallelism with the `--max_concurrent` parameter. Higher values will process more requests simultaneously but will require more resources. The optimal value depends on your hardware, network capacity, and the API endpoint's capabilities.
 
 ## Customization
 
