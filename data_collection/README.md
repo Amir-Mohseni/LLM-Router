@@ -43,7 +43,7 @@ This separation allows for more efficient processing and makes it easier to expe
 - **Optimized parallelization**: Uses batched requests with n=k parameter for efficient response generation
 - **Batched processing**: Problems are processed in batches, with results saved after each batch
 - **Checkpointing**: Progress is saved periodically, allowing recovery from interruptions
-- **JSONL format**: Results are stored in JSONL format (one JSON object per line) for efficient storage and processing
+- **JSONL format**: Results are stored in JSONL format for efficient storage and processing
 - **Multiple responses**: For each problem, k sample responses are generated and preserved regardless of correctness
 - **Flexible dataset handling**: Process either a specific number of problems or the entire dataset
 
