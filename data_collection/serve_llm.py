@@ -3,15 +3,40 @@ import argparse
 import subprocess
 import sys
 import os
+import time
+import socket
+import requests
+from pathlib import Path
 
-from data_collection.config import (
-    MODEL_NAME,
-    VLLM_MAX_MODEL_LEN
-)
+from config import MODEL_NAME, VLLM_MAX_MODEL_LEN
 
-def serve_vllm(model_name=None, 
-               max_model_len=None,
-               trust_remote_code=True):
+def is_port_in_use(port=8000):
+    """Check if the specified port is in use"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', port)) == 0
+
+def wait_for_server(port=8000, timeout=60, check_interval=2):
+    """Wait for the server to be available on the specified port"""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if is_port_in_use(port):
+            # Try to connect to the API endpoint
+            try:
+                response = requests.get(f"http://localhost:{port}/v1/models")
+                if response.status_code == 200:
+                    print(f"✅ Server is ready and responding on port {port}!")
+                    return True
+            except requests.RequestException:
+                pass  # Keep waiting
+        
+        # Still waiting
+        print(f"Waiting for server to be ready on port {port}... ({int(time.time() - start_time)}s)")
+        time.sleep(check_interval)
+    
+    print(f"❌ Server didn't respond within {timeout} seconds.")
+    return False
+
+def serve_vllm(model_name=None, max_model_len=None):
     """
     Starts a vLLM server with the specified configuration.
     Server always runs in the background.
@@ -19,9 +44,6 @@ def serve_vllm(model_name=None,
     Args:
         model_name (str): The name or path of the model to serve
         max_model_len (int): Maximum model context length
-        host (str): Host to bind the server to
-        port (int): Port to run the server on
-        trust_remote_code (bool): Whether to trust remote code from the model repository
     """
     # Use values from config if not provided
     model_name = model_name or MODEL_NAME
@@ -32,25 +54,31 @@ def serve_vllm(model_name=None,
         model_name,
         "--max_model_len", str(max_model_len),
         "--disable-mm-preprocessor-cache",
-        "--dtype", "auto"
+        "--dtype", "auto",
+        "--trust-remote-code"
     ]
-    
-    # Add trust remote code flag if specified
-    if trust_remote_code:
-        cmd.append("--trust-remote-code")
     
     print(f"Starting vLLM server with command: {' '.join(cmd)}")
     print(f"Model: {model_name}")
     print(f"Context length: {max_model_len}")
     
     try:
+        # Check if a server is already running
+        if is_port_in_use(8000):
+            print(f"⚠️ Port 8000 is already in use. A server might already be running.")
+            return
+            
         # Always run in background
         process = subprocess.Popen(cmd, 
                                 stdout=subprocess.DEVNULL, 
                                 stderr=subprocess.DEVNULL, 
                                 start_new_session=True)
-        print(f"Server is running in the background with PID: {process.pid}")
+        print(f"Server is starting in the background with PID: {process.pid}")
         print(f"To stop the server: kill {process.pid}")
+        
+        # Wait for the server to be ready
+        wait_for_server()
+        
         return process.pid
     except Exception as e:
         print(f"Error starting vLLM server: {e}")
@@ -68,7 +96,6 @@ def main():
     serve_vllm(
         model_name=args.model,
         max_model_len=args.max_model_len,
-        trust_remote_code=args.trust_remote_code
     )
 
 if __name__ == "__main__":

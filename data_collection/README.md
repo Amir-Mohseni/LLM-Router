@@ -95,13 +95,29 @@ vllm serve meta-llama/Llama-3.2-1B --model-impl transformers --max_model_len 819
 python -m data_collection.serve_llm
 
 # Or customize the model and parameters at runtime
-python -m data_collection.serve_llm --model "meta-llama/Llama-3.2-1B" --max-model-len 4096 --port 8080
+python -m data_collection.serve_llm --model "meta-llama/Llama-3.2-1B" --max-model-len 4096
 
 # Start a server for Gemma models with necessary flags
 python -m data_collection.serve_llm --model "google/gemma-3-4b-it"
 ```
 
 The server will use the settings defined in `config.py` by default. You can modify these settings in the config file or override them with command-line arguments as shown above. The server always runs in the background and will display its Process ID (PID) so you can stop it later if needed.
+
+#### Google Colab Support
+The server script is designed to work seamlessly in Google Colab. When running in Colab with the `!` command prefix, the script will:
+
+1. Start the server in the background
+2. Wait until the server is fully online and responding
+3. Return control to the next cell after confirmation
+
+Example usage in Colab:
+```python
+# Cell 1: Start the server
+!python data_collection/serve_llm.py --model "google/gemma-3-4b-it"
+
+# Cell 2: Run inference (will execute once the server is ready)
+!python data_collection/run_inference.py --model "google/gemma-3-4b-it"
+```
 
 The server will be available at the URL specified in config.py (default: http://localhost:8000/v1).
 
