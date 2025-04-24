@@ -15,14 +15,14 @@ def is_port_in_use(port=8000):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(('localhost', port)) == 0
 
-def wait_for_server(port=8000, timeout=60, check_interval=2):
+def wait_for_server(port=8000, timeout=180, check_interval=20):
     """Wait for the server to be available on the specified port"""
     start_time = time.time()
     while time.time() - start_time < timeout:
         if is_port_in_use(port):
             # Try to connect to the API endpoint
             try:
-                response = requests.get(f"http://localhost:{port}/v1/models")
+                response = requests.get(f"http://0.0.0.0:{port}/v1/models")
                 if response.status_code == 200:
                     print(f"✅ Server is ready and responding on port {port}!")
                     return True
@@ -36,7 +36,7 @@ def wait_for_server(port=8000, timeout=60, check_interval=2):
     print(f"❌ Server didn't respond within {timeout} seconds.")
     return False
 
-def serve_vllm(model_name=None, max_model_len=None):
+def serve_vllm(model_name=None, max_model_len=None, gpu_memory_util=0.95):
     """
     Starts a vLLM server with the specified configuration.
     Server always runs in the background.
@@ -44,6 +44,7 @@ def serve_vllm(model_name=None, max_model_len=None):
     Args:
         model_name (str): The name or path of the model to serve
         max_model_len (int): Maximum model context length
+        gpu_memory_util (float): GPU memory utilization (0.0 to 1.0)
     """
     # Use values from config if not provided
     model_name = model_name or MODEL_NAME
@@ -55,12 +56,14 @@ def serve_vllm(model_name=None, max_model_len=None):
         "--max_model_len", str(max_model_len),
         "--disable-mm-preprocessor-cache",
         "--dtype", "auto",
-        "--trust-remote-code"
+        "--trust-remote-code",
+        "--gpu-memory-utilization", str(gpu_memory_util)
     ]
     
     print(f"Starting vLLM server with command: {' '.join(cmd)}")
     print(f"Model: {model_name}")
     print(f"Context length: {max_model_len}")
+    print(f"GPU memory utilization: {gpu_memory_util * 100:.0f}%")
     
     try:
         # Check if a server is already running
@@ -90,12 +93,15 @@ def main():
                         help=f"Model name or path (default: {MODEL_NAME})")
     parser.add_argument("--max-model-len", type=int, default=None, 
                         help=f"Maximum model context length (default: {VLLM_MAX_MODEL_LEN})")
+    parser.add_argument("--gpu-util", type=float, default=0.95,
+                        help="GPU memory utilization, from 0.0 to 1.0 (default: 0.95)")
     
     args = parser.parse_args()
     
     serve_vllm(
         model_name=args.model,
         max_model_len=args.max_model_len,
+        gpu_memory_util=args.gpu_util
     )
 
 if __name__ == "__main__":

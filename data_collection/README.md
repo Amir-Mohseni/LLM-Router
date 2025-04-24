@@ -97,6 +97,9 @@ python -m data_collection.serve_llm
 # Or customize the model and parameters at runtime
 python -m data_collection.serve_llm --model "meta-llama/Llama-3.2-1B" --max-model-len 4096
 
+# Increase GPU utilization (default is 95%)
+python -m data_collection.serve_llm --gpu-util 0.98
+
 # Start a server for Gemma models with necessary flags
 python -m data_collection.serve_llm --model "google/gemma-3-4b-it"
 ```
@@ -112,8 +115,8 @@ The server script is designed to work seamlessly in Google Colab. When running i
 
 Example usage in Colab:
 ```python
-# Cell 1: Start the server
-!python data_collection/serve_llm.py --model "google/gemma-3-4b-it"
+# Cell 1: Start the server with high GPU utilization
+!python data_collection/serve_llm.py --model "google/gemma-3-4b-it" --gpu-util 0.98
 
 # Cell 2: Run inference (will execute once the server is ready)
 !python data_collection/run_inference.py --model "google/gemma-3-4b-it"
