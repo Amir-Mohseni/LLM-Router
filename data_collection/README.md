@@ -14,7 +14,7 @@ This directory contains tools for collecting and analyzing model responses to pr
 3. Environment Variables:
    ```bash
    # Copy the example environment file
-   cp env.example .env
+   cp .env.example .env
    
    # Edit the .env file with your API keys and preferred settings
    nano .env
