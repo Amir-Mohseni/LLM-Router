@@ -20,7 +20,8 @@ from config import (
     DEFAULT_MODEL, DATASET_NAME, DATASET_SPLIT,
     NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR,
     PROMPT_BATCH_SIZE, PROBLEM_BATCH_SIZE,
-    API_MODE, API_BASE, API_KEY, MODEL_NAME
+    API_MODE, API_BASE, API_KEY, MODEL_NAME,
+    CUSTOM_OUTPUT_FILENAME, MAX_ATTEMPTS_PER_QUESTION
 )
 from prompts import (
     MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT,
@@ -41,6 +42,10 @@ def parse_args():
                         help=f"Maximum number of tokens for generation and model context (default: {MAX_TOKENS})")
     parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR,
                         help=f"Directory to save results (default: {OUTPUT_DIR})")
+    parser.add_argument("--output_file", type=str, default=CUSTOM_OUTPUT_FILENAME,
+                        help=f"Custom filename for results (default: auto-generated)")
+    parser.add_argument("--max_attempts", type=int, default=MAX_ATTEMPTS_PER_QUESTION,
+                        help=f"Maximum number of attempts per question (default: {MAX_ATTEMPTS_PER_QUESTION})")
     parser.add_argument("--batch_size", type=int, default=PROBLEM_BATCH_SIZE,
                         help=f"Number of problems to process in each batch (default: {PROBLEM_BATCH_SIZE})")
     parser.add_argument("--api_mode", type=str, choices=["local", "remote"], default=API_MODE,
@@ -112,7 +117,7 @@ async def async_generate_response(client, prompt, model_name, max_tokens, temper
                 "prompt_idx": prompt_idx
             }
 
-async def generate_responses_async(client, prompts, k_responses, temperature, max_tokens, model_name, max_concurrent):
+async def generate_responses_async(client, prompts, k_responses, temperature, max_tokens, model_name, max_concurrent, skip_failed=True):
     """Generate k responses for each prompt using the OpenAI API client with efficient parallelization"""
     
     # Create a semaphore to limit the number of concurrent requests
@@ -138,6 +143,10 @@ async def generate_responses_async(client, prompts, k_responses, temperature, ma
     
     # Sort responses by prompt index to maintain order
     responses.sort(key=lambda x: x["prompt_idx"])
+    
+    # Filter out failed responses if skip_failed is True
+    if skip_failed:
+        responses = [response for response in responses if response["success"]]
     
     # Return the responses (without the prompt_idx and success fields)
     return [{
@@ -219,6 +228,9 @@ async def main_async():
     print(f"  Max tokens: {args.max_tokens}")
     print(f"  Batch size: {args.batch_size}")
     print(f"  Output directory: {args.output_dir}")
+    print(f"  Maximum attempts per question: {args.max_attempts}")
+    if args.output_file:
+        print(f"  Custom output filename: {args.output_file}")
     
     # Load the dataset
     print(f"Loading dataset {DATASET_NAME}...")
@@ -244,13 +256,34 @@ async def main_async():
         print(f"NOTE: Make sure vLLM server is running with command: vllm serve {model_name}")
     
     # Create a unique output file path
-    cleaned_model_name = model_name.replace('/', '_')
-    dataset_size_str = "full" if num_problems_str == "all" else f"{len(dataset)}"
-    output_file = os.path.join(
-        args.output_dir, 
-        f"{cleaned_model_name}_{dataset_size_str}problems_{args.k_responses}k_{int(time.time())}.jsonl"
-    )
-    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+    if args.output_file:
+        output_file = os.path.join(args.output_dir, args.output_file)
+    else:
+        cleaned_model_name = model_name.replace('/', '_')
+        dataset_size_str = "full" if num_problems_str == "all" else f"{len(dataset)}"
+        output_file = os.path.join(
+            args.output_dir, 
+            f"{cleaned_model_name}_{dataset_size_str}problems_{args.k_responses}k_{int(time.time())}.jsonl"
+        )
+    
+    # Load attempt tracking data from existing output file
+    attempts_by_id = {}
+    if os.path.exists(output_file):
+        print(f"Output file {output_file} already exists.")
+        with open(output_file, 'r') as f:
+            for line in f:
+                try:
+                    data = json.loads(line)
+                    question_id = data.get("unique_id", "")
+                    if question_id:
+                        attempts_by_id[question_id] = attempts_by_id.get(question_id, 0) + 1
+                except json.JSONDecodeError:
+                    continue
+        
+        print(f"Found data for {len(attempts_by_id)} previously processed questions")
+    else:
+        # Create the output directory if it doesn't exist
+        Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
     # Process in batches for checkpointing
     batch_size = args.batch_size
@@ -262,9 +295,18 @@ async def main_async():
         # Prepare prompts for this batch
         batch_prompts = []
         batch_problems_info = []
+        batch_indices = []  # Track the original dataset indices
         
         for i in range(batch_start, batch_end):
             problem = dataset[i]
+            
+            # Get or generate a unique ID for this question
+            question_id = problem.get("unique_id", f"q{i}")
+            
+            # Skip if we've already attempted this question the maximum number of times
+            if attempts_by_id.get(question_id, 0) >= args.max_attempts:
+                print(f"Skipping question {question_id} - reached max attempts ({args.max_attempts})")
+                continue
             
             # Get the question and determine if it's MCQ
             question = problem["question"]
@@ -283,7 +325,7 @@ async def main_async():
             
             # Store all problem information
             batch_problems_info.append({
-                "unique_id": problem.get("unique_id", ""),
+                "unique_id": question_id,
                 "problem": question,
                 "is_mcq": is_mcq,
                 "choices": problem.get("choices", None),
@@ -294,6 +336,12 @@ async def main_async():
             })
             
             batch_prompts.append(final_prompt)
+            batch_indices.append(i)
+        
+        # Skip this batch if all questions have reached max attempts
+        if not batch_prompts:
+            print(f"Skipping batch {batch_start+1}-{batch_end} - all questions have reached max attempts")
+            continue
         
         # Generate responses for this batch using async processing
         batch_start_time = time.time()
@@ -306,7 +354,8 @@ async def main_async():
             temperature=args.temperature,
             max_tokens=args.max_tokens,
             model_name=model_name,
-            max_concurrent=max_concurrent
+            max_concurrent=max_concurrent,
+            skip_failed=False  # Don't skip failed responses, we're tracking attempts
         )
         
         batch_time = time.time() - batch_start_time
@@ -315,6 +364,11 @@ async def main_async():
         # Combine problem info with responses for this batch
         batch_results = []
         for problem_info, response_set in zip(batch_problems_info, batch_responses):
+            question_id = problem_info["unique_id"]
+            
+            # Update attempt counter for this question
+            attempts_by_id[question_id] = attempts_by_id.get(question_id, 0) + 1
+            
             batch_results.append({
                 "unique_id": problem_info["unique_id"],
                 "problem": problem_info["problem"],
@@ -324,15 +378,30 @@ async def main_async():
                 "explanation_correct": problem_info["explanation_correct"],
                 "answer_correct": problem_info["answer_correct"],
                 "category": problem_info["category"],
-                "responses": response_set["responses"]
+                "responses": response_set["responses"],
+                "attempt_number": attempts_by_id[question_id]
             })
         
         # Save this batch as a checkpoint
         save_batch(batch_results, output_file)
         
         print(f"Checkpoint saved, {batch_end}/{len(dataset)} problems processed")
+        print(f"Current attempts status: {len(attempts_by_id)} questions have been attempted at least once")
     
+    # Print summary
+    print(f"\nInference completed:")
     print(f"Results saved to {output_file}")
+    print(f"Processed {len(attempts_by_id)} unique questions")
+    
+    # Print distribution of attempts
+    attempt_counts = {}
+    for attempt_count in attempts_by_id.values():
+        attempt_counts[attempt_count] = attempt_counts.get(attempt_count, 0) + 1
+    
+    print("\nAttempt distribution:")
+    for attempts, count in sorted(attempt_counts.items()):
+        print(f"  {attempts} attempt(s): {count} questions")
+    
     print("\nTo extract and analyze answers, use the answer_extraction.py script:")
     print(f"python -m data_collection.answer_extraction --input {output_file}")
 

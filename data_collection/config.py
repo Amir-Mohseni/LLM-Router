@@ -10,6 +10,7 @@ API_MODE = "local"  # "local" or "remote"
 API_BASE = "http://localhost:8000/v1"  # Base URL 
 API_KEY = "EMPTY"  # API key for local server (usually not needed)
 MODEL_NAME = "gemma-3-4b-it"
+
 # vLLM server settings
 VLLM_HOST = "0.0.0.0"  # Host to bind the server to
 VLLM_PORT = 8000  # Port to run the server on
@@ -28,6 +29,8 @@ MAX_TOKENS = 2048  # Maximum tokens per response (for non-reasoning models -> 20
 
 # Output settings
 OUTPUT_DIR = "data_collection/inference_results"
+CUSTOM_OUTPUT_FILENAME = None  # Custom filename for results (None = auto-generate)
+MAX_ATTEMPTS_PER_QUESTION = 3  # Maximum number of attempts per question before giving up
 
 # Batching settings
 PROMPT_BATCH_SIZE = 8  # Number of prompts to process at once in vLLM

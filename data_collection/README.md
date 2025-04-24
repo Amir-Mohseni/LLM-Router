@@ -120,6 +120,12 @@ python -m data_collection.run_inference --batch_size 10 --k_responses 3
 # Control parallel processing (higher values = more throughput but higher resource usage)
 python -m data_collection.run_inference --max_concurrent 20
 
+# Use a custom output filename (useful for resuming interrupted runs)
+python -m data_collection.run_inference --output_file "my_custom_results.jsonl"
+
+# Set a maximum number of attempts per question (default: 3)
+python -m data_collection.run_inference --max_attempts 5
+
 # Custom API settings
 python -m data_collection.run_inference --api_base "http://localhost:9000/v1" --api_key "your-api-key-here"
 ```
@@ -135,7 +141,36 @@ Options:
 - `--max_tokens`: Maximum number of tokens for generation (default from config.py)
 - `--batch_size`: Number of problems to process in each batch (default from config.py)
 - `--output_dir`: Directory to save results (default from config.py)
+- `--output_file`: Custom filename for results (default: auto-generated)
+- `--max_attempts`: Maximum number of attempts per question (default: 3)
 - `--max_concurrent`: Maximum number of concurrent API requests (default: 10)
+
+### Handling Failed API Calls
+
+The script tracks the number of attempts made for each question. If an API call fails, the question will be retried in subsequent runs until it reaches the maximum number of attempts specified by `--max_attempts`. This ensures that:
+
+1. Questions with successful responses aren't retried unnecessarily
+2. Questions with failed responses get additional attempts
+3. Questions that consistently fail after reaching the maximum attempts are skipped
+
+```bash
+# Set a higher max attempts for challenging questions
+python -m data_collection.run_inference --max_attempts 5 --output_file "difficult_questions.jsonl"
+```
+
+### Resume Interrupted Runs
+
+If you need to interrupt a run, you can resume it later by using the same output filename:
+
+```bash
+# Start a run with a custom filename
+python -m data_collection.run_inference --output_file "my_results.jsonl"
+
+# Later, resume the run with the same filename
+python -m data_collection.run_inference --output_file "my_results.jsonl"
+```
+
+The script will automatically detect how many problems have already been processed and continue from where it left off.
 
 ### Extract and Evaluate Answers
 
