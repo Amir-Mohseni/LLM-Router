@@ -106,6 +106,15 @@ python -m data_collection.serve_llm --model "google/gemma-3-4b-it"
 
 The server will use the settings defined in `config.py` by default. You can modify these settings in the config file or override them with command-line arguments as shown above. The server always runs in the background and will display its Process ID (PID) so you can stop it later if needed.
 
+#### Special Token Handling
+
+The system includes optimizations to prevent issues with special tokens like `<end_of_turn>` being repeatedly generated:
+
+1. **Stop Sequences**: Generation automatically stops when encountering special tokens like `<end_of_turn>` or `<|im_end|>`.
+2. **Eager Execution**: The vLLM server uses eager execution mode for better token handling.
+
+These optimizations ensure clean responses without repetitive end tokens or other artifacts.
+
 #### Google Colab Support
 The server script is designed to work seamlessly in Google Colab. When running in Colab with the `!` command prefix, the script will:
 

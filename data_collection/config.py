@@ -29,6 +29,13 @@ K_RESPONSES = 5  # Number of responses per question
 TEMPERATURE = 0.7  # Sampling temperature for diversity
 MAX_TOKENS = 2048  # Maximum tokens per response (for non-reasoning models -> 2048 and for reasoning models -> 4096)
 
+# Advanced generation settings
+GENERATION_KWARGS = {
+    "stop": ["<end_of_turn>", "<|end_of_turn|>", "<|im_end|>"],  # Stop generation at these tokens
+    "logprobs": None,  # Don't return token logprobs to save bandwidth
+    "echo": False,  # Don't echo the prompt in the response
+}
+
 # Output settings
 OUTPUT_DIR = "data_collection/inference_results"
 CUSTOM_OUTPUT_FILENAME = None  # Custom filename for results (None = auto-generate)

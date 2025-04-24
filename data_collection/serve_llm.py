@@ -57,13 +57,15 @@ def serve_vllm(model_name=None, max_model_len=None, gpu_memory_util=0.95):
         "--disable-mm-preprocessor-cache",
         "--dtype", "auto",
         "--trust-remote-code",
-        "--gpu-memory-utilization", str(gpu_memory_util)
+        "--gpu-memory-utilization", str(gpu_memory_util),
+        "--enforce-eager",  # Enforce eager execution mode for better token handling
     ]
     
     print(f"Starting vLLM server with command: {' '.join(cmd)}")
     print(f"Model: {model_name}")
     print(f"Context length: {max_model_len}")
     print(f"GPU memory utilization: {gpu_memory_util * 100:.0f}%")
+    print(f"Using eager execution mode for better token handling")
     
     try:
         # Check if a server is already running

@@ -18,8 +18,9 @@ from datasets import load_dataset
 # Import local modules
 from config import (
     DATASET_NAME, DATASET_SPLIT,
-    NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR, PROBLEM_BATCH_SIZE,
-    API_MODE, API_BASE, API_KEY, MODEL_NAME, MAX_ATTEMPTS_PER_QUESTION
+    NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR,
+    PROBLEM_BATCH_SIZE, API_MODE, API_BASE, API_KEY, 
+    MODEL_NAME, MAX_ATTEMPTS_PER_QUESTION, GENERATION_KWARGS
 )
 from prompts import (
     MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT,
@@ -81,14 +82,18 @@ async def async_generate_response(client, prompt, model_name, max_tokens, temper
     """Generate responses for a single prompt using the OpenAI API client asynchronously"""
     async with semaphore:
         try:
+            # Prepare generation parameters
+            params = {
+                "model": model_name,
+                "prompt": prompt,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "n": k_responses,
+                **GENERATION_KWARGS  # Include advanced generation settings from config
+            }
+            
             # Use 'n' parameter to generate k responses in one API call
-            completion = await client.completions.create(
-                model=model_name,
-                prompt=prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                n=k_responses
-            )
+            completion = await client.completions.create(**params)
             
             # Extract and store all responses
             responses = []
