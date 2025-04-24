@@ -141,8 +141,10 @@ async def generate_responses_async(client, prompts, k_responses, temperature, ma
         )
         tasks.append(task)
     
-    # Wait for all tasks to complete
-    responses = await asyncio.gather(*tasks)
+    # Wait for all tasks to complete with a progress bar
+    responses = []
+    for f in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Generating responses", leave=False):
+        responses.append(await f)
     
     # Sort responses by prompt index to maintain order
     responses.sort(key=lambda x: x["prompt_idx"])
@@ -302,112 +304,120 @@ async def main_async():
     # Process in batches for checkpointing
     batch_size = args.batch_size
     
-    for batch_start in range(0, len(dataset), batch_size):
-        batch_end = min(batch_start + batch_size, len(dataset))
-        print(f"Processing problems {batch_start+1}-{batch_end} of {len(dataset)}...")
-        
-        # Prepare prompts for this batch
-        batch_prompts = []
-        batch_problems_info = []
-        batch_indices = []  # Track the original dataset indices
-        
-        for i in range(batch_start, batch_end):
-            problem = dataset[i]
+    # Create a tqdm progress bar for the overall dataset
+    with tqdm(total=len(dataset), desc="Processing dataset") as pbar:
+        for batch_start in range(0, len(dataset), batch_size):
+            batch_end = min(batch_start + batch_size, len(dataset))
+            print(f"Processing problems {batch_start+1}-{batch_end} of {len(dataset)}...")
             
-            # Get or generate a unique ID for this question
-            question_id = problem.get("unique_id", f"q{i}")
+            # Prepare prompts for this batch
+            batch_prompts = []
+            batch_problems_info = []
+            batch_indices = []  # Track the original dataset indices
             
-            # Skip if we've already attempted this question the maximum number of times
-            if attempts_by_id.get(question_id, 0) >= args.max_attempts:
-                print(f"Skipping question {question_id} - reached max attempts ({args.max_attempts})")
+            skipped_count = 0
+            for i in range(batch_start, batch_end):
+                problem = dataset[i]
+                
+                # Get or generate a unique ID for this question
+                question_id = problem.get("unique_id", f"q{i}")
+                
+                # Skip if we've already attempted this question the maximum number of times
+                if attempts_by_id.get(question_id, 0) >= args.max_attempts:
+                    print(f"Skipping question {question_id} - reached max attempts ({args.max_attempts})")
+                    skipped_count += 1
+                    continue
+                
+                # Get the question and determine if it's MCQ
+                question = problem["question"]
+                is_mcq = problem.get("choices") is not None
+                
+                # Format prompt based on question type
+                if is_mcq:
+                    # Format choices with letters (A, B, C, etc.)
+                    formatted_choices = format_choices(problem["choices"])
+                    formatted_prompt = format_prompt(question, formatted_choices)
+                else:
+                    formatted_prompt = format_prompt(question)
+                
+                # Prepend system prompt
+                final_prompt = f"{DEFAULT_SYSTEM_PROMPT}\n\n{formatted_prompt}"
+                
+                # Store all problem information
+                batch_problems_info.append({
+                    "unique_id": question_id,
+                    "problem": question,
+                    "is_mcq": is_mcq,
+                    "choices": problem.get("choices", None),
+                    "choice_index_correct": problem.get("choice_index_correct", None),
+                    "explanation_correct": problem.get("explanation_correct", ""),
+                    "answer_correct": problem.get("answer_correct", ""),
+                    "category": problem.get("category", "")
+                })
+                
+                batch_prompts.append(final_prompt)
+                batch_indices.append(i)
+            
+            # Skip this batch if all questions have reached max attempts
+            if not batch_prompts:
+                print(f"Skipping batch {batch_start+1}-{batch_end} - all questions have reached max attempts")
+                pbar.update(batch_end - batch_start)  # Update progress bar for skipped batch
                 continue
             
-            # Get the question and determine if it's MCQ
-            question = problem["question"]
-            is_mcq = problem.get("choices") is not None
+            # Generate responses for this batch using async processing
+            batch_start_time = time.time()
             
-            # Format prompt based on question type
-            if is_mcq:
-                # Format choices with letters (A, B, C, etc.)
-                formatted_choices = format_choices(problem["choices"])
-                formatted_prompt = format_prompt(question, formatted_choices)
-            else:
-                formatted_prompt = format_prompt(question)
+            print(f"Generating responses for {len(batch_prompts)} prompts with up to {max_concurrent} concurrent requests...")
+            batch_responses = await generate_responses_async(
+                client=client,
+                prompts=batch_prompts,
+                k_responses=args.k_responses,
+                temperature=args.temperature,
+                max_tokens=args.max_tokens,
+                model_name=model_name,
+                max_concurrent=max_concurrent,
+                skip_failed=False  # Don't skip failed responses, we're tracking attempts
+            )
             
-            # Prepend system prompt
-            final_prompt = f"{DEFAULT_SYSTEM_PROMPT}\n\n{formatted_prompt}"
+            batch_time = time.time() - batch_start_time
+            print(f"Batch completed in {batch_time:.2f} seconds ({len(batch_prompts) / batch_time:.2f} prompts/second)")
             
-            # Store all problem information
-            batch_problems_info.append({
-                "unique_id": question_id,
-                "problem": question,
-                "is_mcq": is_mcq,
-                "choices": problem.get("choices", None),
-                "choice_index_correct": problem.get("choice_index_correct", None),
-                "explanation_correct": problem.get("explanation_correct", ""),
-                "answer_correct": problem.get("answer_correct", ""),
-                "category": problem.get("category", "")
-            })
+            # Combine problem info with responses for this batch
+            batch_results = []
+            for problem_info, response_set in zip(batch_problems_info, batch_responses):
+                question_id = problem_info["unique_id"]
+                
+                # Check if all responses were errors
+                all_failed = all(resp["full_response"].startswith("Error generating response:") 
+                                for resp in response_set["responses"])
+                
+                # Only update attempt counter if we got at least one valid response
+                if not all_failed:
+                    attempts_by_id[question_id] = attempts_by_id.get(question_id, 0) + 1
+                else:
+                    # If server connection error, don't count this as an attempt
+                    print(f"Warning: All responses failed for question {question_id}, not counting as an attempt")
+                
+                batch_results.append({
+                    "unique_id": problem_info["unique_id"],
+                    "problem": problem_info["problem"],
+                    "is_mcq": problem_info["is_mcq"],
+                    "choices": problem_info["choices"],
+                    "choice_index_correct": problem_info["choice_index_correct"],
+                    "explanation_correct": problem_info["explanation_correct"],
+                    "answer_correct": problem_info["answer_correct"],
+                    "category": problem_info["category"],
+                    "responses": response_set["responses"]
+                })
             
-            batch_prompts.append(final_prompt)
-            batch_indices.append(i)
-        
-        # Skip this batch if all questions have reached max attempts
-        if not batch_prompts:
-            print(f"Skipping batch {batch_start+1}-{batch_end} - all questions have reached max attempts")
-            continue
-        
-        # Generate responses for this batch using async processing
-        batch_start_time = time.time()
-        
-        print(f"Generating responses for {len(batch_prompts)} prompts with up to {max_concurrent} concurrent requests...")
-        batch_responses = await generate_responses_async(
-            client=client,
-            prompts=batch_prompts,
-            k_responses=args.k_responses,
-            temperature=args.temperature,
-            max_tokens=args.max_tokens,
-            model_name=model_name,
-            max_concurrent=max_concurrent,
-            skip_failed=False  # Don't skip failed responses, we're tracking attempts
-        )
-        
-        batch_time = time.time() - batch_start_time
-        print(f"Batch completed in {batch_time:.2f} seconds ({len(batch_prompts) / batch_time:.2f} prompts/second)")
-        
-        # Combine problem info with responses for this batch
-        batch_results = []
-        for problem_info, response_set in zip(batch_problems_info, batch_responses):
-            question_id = problem_info["unique_id"]
+            # Save this batch as a checkpoint
+            save_batch(batch_results, output_file)
             
-            # Check if all responses were errors
-            all_failed = all(resp["full_response"].startswith("Error generating response:") 
-                            for resp in response_set["responses"])
+            print(f"Checkpoint saved, {batch_end}/{len(dataset)} problems processed")
+            print(f"Current attempts status: {len(attempts_by_id)} questions have been attempted at least once")
             
-            # Only update attempt counter if we got at least one valid response
-            if not all_failed:
-                attempts_by_id[question_id] = attempts_by_id.get(question_id, 0) + 1
-            else:
-                # If server connection error, don't count this as an attempt
-                print(f"Warning: All responses failed for question {question_id}, not counting as an attempt")
-            
-            batch_results.append({
-                "unique_id": problem_info["unique_id"],
-                "problem": problem_info["problem"],
-                "is_mcq": problem_info["is_mcq"],
-                "choices": problem_info["choices"],
-                "choice_index_correct": problem_info["choice_index_correct"],
-                "explanation_correct": problem_info["explanation_correct"],
-                "answer_correct": problem_info["answer_correct"],
-                "category": problem_info["category"],
-                "responses": response_set["responses"]
-            })
-        
-        # Save this batch as a checkpoint
-        save_batch(batch_results, output_file)
-        
-        print(f"Checkpoint saved, {batch_end}/{len(dataset)} problems processed")
-        print(f"Current attempts status: {len(attempts_by_id)} questions have been attempted at least once")
+            # Update the progress bar with the number of processed problems in this batch
+            pbar.update(batch_end - batch_start)
     
     # Print summary
     print(f"\nInference completed:")
