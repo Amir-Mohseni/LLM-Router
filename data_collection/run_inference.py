@@ -289,10 +289,8 @@ async def main_async():
                         
                         # Only count as an attempt if there was at least one valid response
                         if not all_failed:
-                            attempts_by_id[question_id] = max(
-                                attempts_by_id.get(question_id, 0),
-                                data.get("attempt_number", 0)
-                            )
+                            # Increment the attempt counter for this question
+                            attempts_by_id[question_id] = attempts_by_id.get(question_id, 0) + 1
                 except json.JSONDecodeError:
                     continue
         
@@ -389,10 +387,8 @@ async def main_async():
             # Only update attempt counter if we got at least one valid response
             if not all_failed:
                 attempts_by_id[question_id] = attempts_by_id.get(question_id, 0) + 1
-                attempt_number = attempts_by_id[question_id]
             else:
                 # If server connection error, don't count this as an attempt
-                attempt_number = attempts_by_id.get(question_id, 0)
                 print(f"Warning: All responses failed for question {question_id}, not counting as an attempt")
             
             batch_results.append({
@@ -404,8 +400,7 @@ async def main_async():
                 "explanation_correct": problem_info["explanation_correct"],
                 "answer_correct": problem_info["answer_correct"],
                 "category": problem_info["category"],
-                "responses": response_set["responses"],
-                "attempt_number": attempt_number
+                "responses": response_set["responses"]
             })
         
         # Save this batch as a checkpoint
