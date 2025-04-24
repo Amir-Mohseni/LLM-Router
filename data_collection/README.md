@@ -91,14 +91,17 @@ vllm serve meta-llama/Llama-3.2-1B --model-impl transformers --max_model_len 819
 
 #### Option 2: Using the serve_llm.py script (recommended)
 ```bash
-# Start the server with default settings from config.py
+# Start the server with default settings from config.py (runs in background automatically)
 python -m data_collection.serve_llm
 
 # Or customize the model and parameters at runtime
 python -m data_collection.serve_llm --model "meta-llama/Llama-3.2-1B" --max-model-len 4096 --port 8080
+
+# Start a server for Gemma models with necessary flags
+python -m data_collection.serve_llm --model "google/gemma-3-4b-it"
 ```
 
-The server will use the settings defined in `config.py` by default. You can modify these settings in the config file or override them with command-line arguments as shown above.
+The server will use the settings defined in `config.py` by default. You can modify these settings in the config file or override them with command-line arguments as shown above. The server always runs in the background and will display its Process ID (PID) so you can stop it later if needed.
 
 The server will be available at the URL specified in config.py (default: http://localhost:8000/v1).
 
@@ -120,7 +123,7 @@ python -m data_collection.run_inference --batch_size 10 --k_responses 3
 # Control parallel processing (higher values = more throughput but higher resource usage)
 python -m data_collection.run_inference --max_concurrent 20
 
-# Use a custom output filename (useful for resuming interrupted runs)
+# Use a custom output filename (useful for consistent result storage across runs)
 python -m data_collection.run_inference --output_file "my_custom_results.jsonl"
 
 # Set a maximum number of attempts per question (default: 3)
@@ -145,17 +148,32 @@ Options:
 - `--max_attempts`: Maximum number of attempts per question (default: 3)
 - `--max_concurrent`: Maximum number of concurrent API requests (default: 10)
 
-### Handling Failed API Calls
+### Continuous Inference and Error Handling
 
-The script tracks the number of attempts made for each question. If an API call fails, the question will be retried in subsequent runs until it reaches the maximum number of attempts specified by `--max_attempts`. This ensures that:
+The inference system is designed for robustness and continuation:
 
-1. Questions with successful responses aren't retried unnecessarily
-2. Questions with failed responses get additional attempts
-3. Questions that consistently fail after reaching the maximum attempts are skipped
+1. **Consistent File Naming**: By default, results are saved with a consistent filename based on the model and dataset name, allowing automatic continuation across runs.
 
+2. **Attempt Tracking**: The system tracks the number of attempts made for each question. Failed questions will be retried in subsequent runs until they reach the maximum number of attempts.
+
+3. **Connection Error Handling**: If all responses for a question fail due to server connection issues, the system will not count it as an attempt, ensuring that temporary outages don't waste your attempt quota.
+
+4. **Progress Tracking**: The system automatically tracks which questions have been processed and continues from where it left off in case of interruptions.
+
+Example workflow:
 ```bash
-# Set a higher max attempts for challenging questions
-python -m data_collection.run_inference --max_attempts 5 --output_file "difficult_questions.jsonl"
+# 1. Start the vLLM server (runs in background automatically)
+python -m data_collection.serve_llm
+
+# 2. Run inference (first batch)
+python -m data_collection.run_inference
+
+# 3. If the process is interrupted or some questions fail, just run it again
+# to continue from where it left off
+python -m data_collection.run_inference
+
+# 4. When done, analyze the results
+python -m data_collection.answer_extraction --input data_collection/inference_results/google_gemma-3-4b-it_MATH_500_MMLU_Pro.jsonl
 ```
 
 ### Resume Interrupted Runs

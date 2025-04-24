@@ -17,11 +17,9 @@ from datasets import load_dataset
 
 # Import local modules
 from config import (
-    DEFAULT_MODEL, DATASET_NAME, DATASET_SPLIT,
-    NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR,
-    PROMPT_BATCH_SIZE, PROBLEM_BATCH_SIZE,
-    API_MODE, API_BASE, API_KEY, MODEL_NAME,
-    CUSTOM_OUTPUT_FILENAME, MAX_ATTEMPTS_PER_QUESTION
+    DATASET_NAME, DATASET_SPLIT,
+    NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR, PROBLEM_BATCH_SIZE,
+    API_MODE, API_BASE, API_KEY, MODEL_NAME, MAX_ATTEMPTS_PER_QUESTION
 )
 from prompts import (
     MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT,
@@ -42,8 +40,8 @@ def parse_args():
                         help=f"Maximum number of tokens for generation and model context (default: {MAX_TOKENS})")
     parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR,
                         help=f"Directory to save results (default: {OUTPUT_DIR})")
-    parser.add_argument("--output_file", type=str, default=CUSTOM_OUTPUT_FILENAME,
-                        help=f"Custom filename for results (default: auto-generated)")
+    parser.add_argument("--output_file", type=str, default=None,
+                        help=f"Custom filename for results (default: model_dataset.jsonl)")
     parser.add_argument("--max_attempts", type=int, default=MAX_ATTEMPTS_PER_QUESTION,
                         help=f"Maximum number of attempts per question (default: {MAX_ATTEMPTS_PER_QUESTION})")
     parser.add_argument("--batch_size", type=int, default=PROBLEM_BATCH_SIZE,
@@ -259,11 +257,12 @@ async def main_async():
     if args.output_file:
         output_file = os.path.join(args.output_dir, args.output_file)
     else:
+        # Use a more consistent filename based on the model and dataset
         cleaned_model_name = model_name.replace('/', '_')
-        dataset_size_str = "full" if num_problems_str == "all" else f"{len(dataset)}"
+        dataset_name = DATASET_NAME.split('/')[-1]
         output_file = os.path.join(
             args.output_dir, 
-            f"{cleaned_model_name}_{dataset_size_str}problems_{args.k_responses}k_{int(time.time())}.jsonl"
+            f"{cleaned_model_name}_{dataset_name}.jsonl"
         )
     
     # Load attempt tracking data from existing output file
@@ -275,12 +274,24 @@ async def main_async():
                 try:
                     data = json.loads(line)
                     question_id = data.get("unique_id", "")
+                    
                     if question_id:
-                        attempts_by_id[question_id] = attempts_by_id.get(question_id, 0) + 1
+                        # Check if there were any valid responses
+                        all_failed = all(
+                            resp.get("full_response", "").startswith("Error generating response:") 
+                            for resp in data.get("responses", [])
+                        )
+                        
+                        # Only count as an attempt if there was at least one valid response
+                        if not all_failed:
+                            attempts_by_id[question_id] = max(
+                                attempts_by_id.get(question_id, 0),
+                                data.get("attempt_number", 0)
+                            )
                 except json.JSONDecodeError:
                     continue
         
-        print(f"Found data for {len(attempts_by_id)} previously processed questions")
+        print(f"Found data for {len(attempts_by_id)} previously processed questions with valid responses")
     else:
         # Create the output directory if it doesn't exist
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
@@ -366,8 +377,18 @@ async def main_async():
         for problem_info, response_set in zip(batch_problems_info, batch_responses):
             question_id = problem_info["unique_id"]
             
-            # Update attempt counter for this question
-            attempts_by_id[question_id] = attempts_by_id.get(question_id, 0) + 1
+            # Check if all responses were errors
+            all_failed = all(resp["full_response"].startswith("Error generating response:") 
+                            for resp in response_set["responses"])
+            
+            # Only update attempt counter if we got at least one valid response
+            if not all_failed:
+                attempts_by_id[question_id] = attempts_by_id.get(question_id, 0) + 1
+                attempt_number = attempts_by_id[question_id]
+            else:
+                # If server connection error, don't count this as an attempt
+                attempt_number = attempts_by_id.get(question_id, 0)
+                print(f"Warning: All responses failed for question {question_id}, not counting as an attempt")
             
             batch_results.append({
                 "unique_id": problem_info["unique_id"],
@@ -379,7 +400,7 @@ async def main_async():
                 "answer_correct": problem_info["answer_correct"],
                 "category": problem_info["category"],
                 "responses": response_set["responses"],
-                "attempt_number": attempts_by_id[question_id]
+                "attempt_number": attempt_number
             })
         
         # Save this batch as a checkpoint

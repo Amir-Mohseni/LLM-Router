@@ -16,6 +16,8 @@ VLLM_HOST = "0.0.0.0"  # Host to bind the server to
 VLLM_PORT = 8000  # Port to run the server on
 VLLM_MODEL_IMPL = "transformers"  # Model implementation (transformers or vllm)
 VLLM_MAX_MODEL_LEN = 8192  # Maximum model context length
+# Note: For gemma models, we need to disable multimodal preprocessing with --disable-mm-preprocessor-cache
+# to avoid the "Cannot find `mm_limits` for model" error
 
 # Dataset settings
 DATASET_NAME = "HPC-Boys/MATH_500_MMLU_Pro"
