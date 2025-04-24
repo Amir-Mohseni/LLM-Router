@@ -189,12 +189,20 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Extract and verify answers from model responses")
     parser.add_argument("--input", "-i", required=True, help="Input JSONL file or directory to process")
-    parser.add_argument("--output", "-o", help="Output file or directory for processed results (optional)")
+    parser.add_argument("--output", "-o", help="Output file or directory for processed results (defaults to 'extracted_answers' directory)")
     parser.add_argument("--by-category", action="store_true", help="Show results broken down by category")
     args = parser.parse_args()
     
     input_path = args.input
     output_path = args.output
+    
+    # Set default output directory to 'extracted_answers' if not specified
+    if not output_path:
+        if os.path.isdir(input_path):
+            output_path = "extracted_answers"
+        else:
+            # For single file, create the directory and use the same filename with 'processed_' prefix
+            output_path = os.path.join("extracted_answers", f"processed_{os.path.basename(input_path)}")
     
     if os.path.isdir(input_path):
         # Process a directory of result files

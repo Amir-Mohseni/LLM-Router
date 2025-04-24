@@ -435,6 +435,7 @@ async def main_async():
     
     print("\nTo extract and analyze answers, use the answer_extraction.py script:")
     print(f"python -m data_collection.answer_extraction --input {output_file}")
+    print(f"Results will be saved in the 'extracted_answers' directory by default.")
 
 def main():
     """Main entry point that sets up the asyncio event loop"""
