@@ -10,6 +10,11 @@ API_MODE = "local"  # "local" or "remote"
 API_BASE = "http://localhost:8000/v1"  # Base URL 
 API_KEY = "EMPTY"  # API key for local server (usually not needed)
 MODEL_NAME = "gemma-3-4b-it"
+# vLLM server settings
+VLLM_HOST = "0.0.0.0"  # Host to bind the server to
+VLLM_PORT = 8000  # Port to run the server on
+VLLM_MODEL_IMPL = "transformers"  # Model implementation (transformers or vllm)
+VLLM_MAX_MODEL_LEN = 8192  # Maximum model context length
 
 # Dataset settings
 DATASET_NAME = "HPC-Boys/MATH_500_MMLU_Pro"

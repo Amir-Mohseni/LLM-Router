@@ -81,12 +81,24 @@ You can configure the API settings in `config.py` or use command line arguments.
 
 ### Local Mode Setup (Default)
 
-Before running the inference script in local mode, start the vLLM server:
+Before running the inference script in local mode, you can start the vLLM server using either the command line or the provided script:
 
+#### Option 1: Direct command line
 ```bash
 # Start the vLLM server with your model
-vllm serve meta-llama/Llama-3.2-1B
+vllm serve meta-llama/Llama-3.2-1B --model-impl transformers --max_model_len 8192
 ```
+
+#### Option 2: Using the serve_llm.py script (recommended)
+```bash
+# Start the server with default settings from config.py
+python -m data_collection.serve_llm
+
+# Or customize the model and parameters at runtime
+python -m data_collection.serve_llm --model "meta-llama/Llama-3.2-1B" --max-model-len 4096 --port 8080
+```
+
+The server will use the settings defined in `config.py` by default. You can modify these settings in the config file or override them with command-line arguments as shown above.
 
 The server will be available at the URL specified in config.py (default: http://localhost:8000/v1).
 
