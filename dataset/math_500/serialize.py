@@ -2,10 +2,27 @@ import pandas as pd
 import hashlib
 import json
 import sys
-from typing import Optional
+from typing import Any, Dict
 
-def get_question_id(question: str) -> str:
-    return hashlib.md5(question.encode()).hexdigest()
+def make_unique_id(record: Dict[str, Any]) -> str:
+    """
+    Compute an MD5 hash over the full record.  
+    Raises ValueError if 'unique_id' is already present.
+    """
+    if "unique_id" in record:
+        raise ValueError(
+            "make_unique_id() expects a record *without* a 'unique_id' key; "
+            "remove it before calling or use a fresh dict."
+        )
+
+    # Canonical JSON (sorted keys) for deterministic hashing
+    canonical = json.dumps(
+        record,
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str
+    )
+    return hashlib.md5(canonical.encode("utf-8")).hexdigest()
 
 def check_missing_and_empty(df: pd.DataFrame, verbose: bool = False, ignore_columns: list[str] = None) -> tuple[bool, bool]:
     # If columns are specified to be ignored, drop them; ignore errors if a column isn't present.
@@ -18,7 +35,7 @@ def check_missing_and_empty(df: pd.DataFrame, verbose: bool = False, ignore_colu
     has_missing = df_check.isna().values.any()
     
     # Check for empty strings in cells that contain strings only.
-    has_empty = df_check.applymap(lambda x: isinstance(x, str) and x == "").values.any()
+    has_empty = df_check.map(lambda x: isinstance(x, str) and x == "").values.any()
 
     if verbose:
         messages = []
@@ -45,7 +62,6 @@ if has_missing or has_empty:
 # Function to normalize each row to the new schema
 def normalize_row(row) -> dict:
     return {
-        "unique_id": get_question_id(row["problem"]),
         "question": row["problem"],
         "category": row["subject"],
         "choices": None,
@@ -58,8 +74,16 @@ def normalize_row(row) -> dict:
 output_path = "math_500.jsonl"
 with open(output_path, "w", encoding="utf-8") as f:
     for _, row in df.iterrows():
-        structured = normalize_row(row)
-        json.dump(structured, f, ensure_ascii=False)
+        record = normalize_row(row)
+
+        # compute the unique id
+        uid = make_unique_id(record)
+
+        # build a new dict with unique_id at the beginning
+        ordered_record_with_id = {"unique_id": uid, **record}
+
+        # write the row to file
+        json.dump(ordered_record_with_id, f, ensure_ascii=False)
         f.write("\n")
 
 print(f"Serialized dataset saved to {output_path}")
