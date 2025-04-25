@@ -167,11 +167,37 @@ The Gradio interface can be customized in `app.py` - refer to the [Gradio docume
 - The application routes simpler queries to smaller models to balance performance and quality
 - For multi-turn conversations, history is limited to the most recent exchanges
 
-## 🔍 Troubleshooting
+## 🧪 Testing
 
-- **API Errors**: Verify your HF_TOKEN is valid and has the necessary permissions
-- **SSL Certificate Issues**: Update certificates with `pip install --upgrade certifi`
-- **Slow Responses**: Check your network connection and Hugging Face API status
+This project includes unit tests and integration tests to ensure the quality and correctness of the data collection and processing components. Tests are implemented using `pytest`.
+
+### Running Standard Tests
+
+These tests cover individual functions and module integration using small data samples. They are generally fast and should be run frequently during development.
+
+1.  **Navigate to the project root directory.**
+2.  **Make the test script executable (if you haven't already):**
+    ```bash
+    chmod +x scripts/run_tests.sh
+    ```
+3.  **Run the standard tests:**
+    ```bash
+    ./scripts/run_tests.sh
+    ```
+
+### Running Full Dataset Validation
+
+These tests validate the consistency and integrity of the *entire* dataset specified in the configuration. They load all data and can be **very slow** to run.
+
+1.  **Navigate to the project root directory.**
+2.  **Make the validation script executable (if you haven't already):**
+    ```bash
+    chmod +x scripts/run_validation.sh
+    ```
+3.  **Run the full validation tests:**
+    ```bash
+    ./scripts/run_validation.sh
+    ```
 
 ## 📝 License
 
