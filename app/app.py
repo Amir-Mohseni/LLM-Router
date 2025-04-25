@@ -112,9 +112,10 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
                 placeholder="Type your message here...",
                 lines=2,
                 show_label=False,
-                container=False
+                container=False,
+                elem_id="inputField"
             )
-        with gr.Column(scale=1, min_width=100):
+        with gr.Column(scale=1, min_width=100,elem_id="dropCol"):
             model_dropdown = gr.Dropdown(
                 choices=["automatic"] + router.get_available_models(),
                 value="automatic",
@@ -123,9 +124,9 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
                 show_label=False,
                 container=True
             )
-        with gr.Column(scale=1, min_width=100):
+        with gr.Column(scale=1, min_width=100,elem_id="sendCol"):
             submit_btn = gr.Button("Send", variant="primary",elem_id="send",)
-        with gr.Column(scale=1, min_width=100):
+        with gr.Column(scale=1, min_width=100,elem_id="clearCol"):
             clear_btn = gr.Button("Clear chat",elem_id="clear",)
     
     # Add a notification component at the bottom
@@ -149,15 +150,39 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
     
     # CSS for the notification
     css = """
+    #inputField{
+        height: 50px;   
+        overflow-y: auto;   
+        resize: none;   
+        border-radius: 20px; 
+    }
+    label.svelte-1to105q.float {
+        display: none !important;
+    }
+    # #chatbot{
+    #     border: 0 !important;
+    # }
     #component-17{
-        display: none !important;;
+        display: none !important;
     }
     footer{
         margin: 0 !important;
     }
     #send, #clear  {
-        margin: 10px 0px;
+        margin: 5px 0px;
     } 
+    .form.svelte-633qhp{
+        border: none !important;    
+    }
+    #sendCol, #clearCol {
+        height: 50px !important; 
+    } 
+    #sendCol, #clearCol{
+        # margin-bottom: 50px !important;
+    }
+    #sendCol button, #clearCol button{
+        border-radius: 20px !important; 
+    }
     #centered-examples {
         display: flex;
         flex-direction: row;
