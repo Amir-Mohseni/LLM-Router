@@ -131,10 +131,19 @@ async def generate_responses_async(client, prompts, k_responses, temperature, ma
     # Create a semaphore to limit the number of concurrent requests
     semaphore = asyncio.Semaphore(max_concurrent)
     
+    # Create a progress bar for the batch
+    pbar = tqdm(total=len(prompts), desc="Generating batch responses", leave=True)
+    
+    # Modified async_generate_response that updates progress
+    async def async_generate_with_progress(client, prompt, model_name, max_tokens, temperature, k_responses, prompt_idx, semaphore):
+        result = await async_generate_response(client, prompt, model_name, max_tokens, temperature, k_responses, prompt_idx, semaphore)
+        pbar.update(1)  # Update progress bar after each task completes
+        return result
+    
     # Generate responses for each prompt in parallel
     tasks = []
     for i, prompt in enumerate(prompts):
-        task = async_generate_response(
+        task = async_generate_with_progress(
             client=client,
             prompt=prompt,
             model_name=model_name,
@@ -146,12 +155,15 @@ async def generate_responses_async(client, prompts, k_responses, temperature, ma
         )
         tasks.append(task)
     
-    # Wait for all tasks to complete with a progress bar
-    responses = []
-    for f in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Generating batch responses", leave=True):
-        responses.append(await f)
+    print(f"Submitting all {len(tasks)} tasks in batch and waiting for all to complete...")
     
-    # Sort responses by prompt index to maintain order
+    # Submit all tasks at once and wait for all to complete
+    responses = await asyncio.gather(*tasks)
+    
+    # Close progress bar
+    pbar.close()
+    
+    # Sort responses by prompt index to maintain order  
     responses.sort(key=lambda x: x["prompt_idx"])
     
     # Filter out failed responses if skip_failed is True
@@ -202,12 +214,20 @@ async def main_async():
     
     # Set up API client with the specified settings
     api_base = args.api_base
-    api_key = args.api_key or os.environ.get("VLLM_API_KEY")
-    if not api_key and args.api_mode == "remote":
-        raise ValueError("API key is required for remote API mode. Set it with --api_key or in .env file.")
+    api_mode = args.api_mode
+    
+    # Handle API key based on mode
+    if api_mode == "local":
+        # For local vLLM server, use a dummy API key if none provided
+        api_key = args.api_key or os.environ.get("VLLM_API_KEY")
+        print("Using local vLLM server mode")
+    else:
+        # For remote API, require a real API key
+        api_key = args.api_key or os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("API key is required for remote API mode. Set it with --api_key or in .env file as OPENAI_API_KEY.")
         
     model_name = args.model
-    api_mode = args.api_mode
     max_concurrent = args.max_concurrent
     
     # Log the configuration
