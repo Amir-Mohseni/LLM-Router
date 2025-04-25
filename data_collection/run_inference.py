@@ -11,7 +11,7 @@ import jinja2
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv(override=True)
+load_dotenv()
 
 # Import OpenAI client
 from openai import AsyncOpenAI
@@ -46,8 +46,8 @@ def parse_args():
                         help=f"Maximum number of tokens for generation (default: {MAX_TOKENS})")
     parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR,
                         help=f"Directory to save results (default: {OUTPUT_DIR})")
-    parser.add_argument("--output_file", type=str, default=None,
-                        help=f"Custom filename for results (default: model_dataset.jsonl)")
+    parser.add_argument("--output_file", type=str, required=True,
+                        help="Filename for results (required)")
     parser.add_argument("--retry_failed", action="store_true",
                         help="Only retry questions that previously failed")
     parser.add_argument("--batch_size", type=int, default=PROBLEM_BATCH_SIZE,
@@ -260,10 +260,8 @@ async def main_async():
     print(f"  Max tokens: {args.max_tokens}")
     print(f"  Batch size: {args.batch_size}")
     print(f"  Max concurrent requests: {max_concurrent}")
-    print(f"  Retry failed only: {args.retry_failed}")
     print(f"  Output directory: {args.output_dir}")
-    if args.output_file:
-        print(f"  Custom output filename: {args.output_file}")
+    print(f"  Output file: {args.output_file}")
     
     # Load the dataset
     print(f"Loading dataset {DATASET_NAME}...")
@@ -288,17 +286,8 @@ async def main_async():
     if api_mode == "local":
         print(f"NOTE: Make sure vLLM server is running with command: vllm serve {model_name}")
     
-    # Create a unique output file path
-    if args.output_file:
-        output_file = os.path.join(args.output_dir, args.output_file)
-    else:
-        # Use a more consistent filename based on the model and dataset
-        cleaned_model_name = model_name.replace('/', '_')
-        dataset_name = DATASET_NAME.split('/')[-1]
-        output_file = os.path.join(
-            args.output_dir, 
-            f"{cleaned_model_name}_{dataset_name}.jsonl"
-        )
+    # Create output file path
+    output_file = os.path.join(args.output_dir, args.output_file)
     
     # Track successful and failed questions
     successful_ids = set()
