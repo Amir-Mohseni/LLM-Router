@@ -87,7 +87,10 @@ def process_results_file(input_file: str, output_file: Optional[str] = None) -> 
     
     # Save the processed results if an output file is specified
     if output_file:
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        # Only try to create directory if there's a directory component
+        dir_name = os.path.dirname(output_file)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
         
         # Make sure output file has .jsonl extension
         if not output_file.endswith('.jsonl'):
@@ -196,6 +199,9 @@ if __name__ == "__main__":
     input_path = args.input
     output_path = args.output
     
+    # Create extracted_answers directory 
+    os.makedirs("extracted_answers", exist_ok=True)
+    
     # Set default output directory to 'extracted_answers' if not specified
     if not output_path:
         if os.path.isdir(input_path):
@@ -203,6 +209,10 @@ if __name__ == "__main__":
         else:
             # For single file, create the directory and use the same filename with 'processed_' prefix
             output_path = os.path.join("extracted_answers", f"processed_{os.path.basename(input_path)}")
+    else:
+        # If output_path is just a filename without directory component, place it in extracted_answers
+        if not os.path.dirname(output_path):
+            output_path = os.path.join("extracted_answers", output_path)
     
     if os.path.isdir(input_path):
         # Process a directory of result files
