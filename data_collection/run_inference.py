@@ -316,39 +316,47 @@ async def main_async():
         # Create the output directory if it doesn't exist
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
+    # Determine which questions need processing
+    indices_to_process = []
+    for i, problem in enumerate(dataset):
+        question_id = problem.get("unique_id", f"q{i}")
+        
+        # Skip if already processed successfully
+        if question_id in successful_ids:
+            continue
+            
+        # If retry_failed is set, only process questions that failed before
+        if args.retry_failed and question_id not in failed_ids:
+            continue
+            
+        # If we reach here, the question needs processing
+        indices_to_process.append(i)
+        
+    print(f"Identified {len(indices_to_process)} questions to process out of {len(dataset)} total.")
+    
     # Process in batches for checkpointing
     batch_size = args.batch_size
-    total_batches = (len(dataset) + batch_size - 1) // batch_size  # Ceiling division
+    total_batches = (len(indices_to_process) + batch_size - 1) // batch_size  # Ceiling division
     
-    # Create a tqdm progress bar for the overall dataset
-    with tqdm(total=len(dataset), desc="Processing dataset") as pbar:
-        for batch_idx, batch_start in enumerate(range(0, len(dataset), batch_size)):
-            batch_end = min(batch_start + batch_size, len(dataset))
-            print(f"\nBatch {batch_idx+1}/{total_batches}: Processing problems {batch_start+1}-{batch_end} of {len(dataset)}...")
+    # Create a tqdm progress bar for the questions to be processed
+    with tqdm(total=len(indices_to_process), desc="Processing dataset") as pbar:
+        for batch_idx, batch_start in enumerate(range(0, len(indices_to_process), batch_size)):
+            batch_end = min(batch_start + batch_size, len(indices_to_process))
+            # Get the indices for the current batch
+            batch_indices = indices_to_process[batch_start:batch_end]
+            
+            print(f"\nBatch {batch_idx+1}/{total_batches}: Processing {len(batch_indices)} questions (indices {batch_indices[0]} to {batch_indices[-1]})...")
             
             # Prepare prompts for this batch
             batch_prompts = []
             batch_problems_info = []
-            batch_indices = []  # Track the original dataset indices
             
-            skipped_count = 0
-            for i in range(batch_start, batch_end):
-                problem = dataset[i]
+            for i in batch_indices:
+                # Fetch the problem using the index
+                problem = dataset[i] 
+                question_id = problem.get("unique_id", f"q{i}") # Get ID for info storage
                 
-                # Get or generate a unique ID for this question
-                question_id = problem.get("unique_id", f"q{i}")
-                
-                # Skip if already processed successfully
-                if question_id in successful_ids:
-                    print(f"Skipping question {question_id} - already processed successfully")
-                    skipped_count += 1
-                    continue
-                
-                # If retry_failed is set, only process questions that failed before
-                if args.retry_failed and question_id not in failed_ids and os.path.exists(output_file):
-                    print(f"Skipping question {question_id} - not in failed questions list")
-                    skipped_count += 1
-                    continue
+                # Removed skip checks here as they are done before batching
                 
                 # Get the question and determine if it's MCQ
                 question = problem["question"]
@@ -378,12 +386,11 @@ async def main_async():
                 })
                 
                 batch_prompts.append(final_prompt)
-                batch_indices.append(i)
             
-            # Skip this batch if all questions have been processed or should be skipped
+            # Skip this batch if it somehow ended up empty (shouldn't happen with new logic)
             if not batch_prompts:
-                print(f"Skipping batch {batch_idx+1}/{total_batches} - all questions already processed or skipped")
-                pbar.update(batch_end - batch_start)  # Update progress bar for skipped batch
+                print(f"Skipping batch {batch_idx+1}/{total_batches} - unexpectedly empty")
+                pbar.update(len(batch_indices)) # Update progress bar for skipped batch
                 continue
             
             # Generate responses for this batch using async processing
@@ -439,10 +446,11 @@ async def main_async():
             save_batch(batch_results, output_file)
             
             # Update progress description to show completion status
-            pbar.set_description(f"Processing dataset - {batch_end}/{len(dataset)} problems ({batch_idx+1}/{total_batches} batches)")
-            pbar.update(batch_end - batch_start)
+            pbar.set_description(f"Processing dataset - {batch_end}/{len(indices_to_process)} problems ({batch_idx+1}/{total_batches} batches)")
+            # Update progress bar by the number of items processed in this batch
+            pbar.update(len(batch_indices)) 
             
-            print(f"Checkpoint saved, {batch_end}/{len(dataset)} problems processed")
+            print(f"Checkpoint saved, {batch_end}/{len(indices_to_process)} problems processed")
             print(f"Success status: {len(successful_ids)} questions successfully processed")
             print(f"Failure status: {len(failed_ids)} questions with failed responses")
     
