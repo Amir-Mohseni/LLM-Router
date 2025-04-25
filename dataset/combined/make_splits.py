@@ -47,10 +47,11 @@ def deterministic_split(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    prefix = input_file.stem
     destinations: Dict[str, TextIO] = {
-        "train": (output_dir / "train.jsonl").open("w", encoding="utf-8"),
-        "validation": (output_dir / "validation.jsonl").open("w", encoding="utf-8"),
-        "test": (output_dir / "test.jsonl").open("w", encoding="utf-8"),
+        "train":      (output_dir / f"{prefix}_train.jsonl").open("w", encoding="utf-8"),
+        "validation": (output_dir / f"{prefix}_validation.jsonl").open("w", encoding="utf-8"),
+        "test":       (output_dir / f"{prefix}_test.jsonl").open("w", encoding="utf-8"),
     }
     counts = {k: 0 for k in destinations}
 
