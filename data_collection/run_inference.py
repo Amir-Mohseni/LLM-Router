@@ -131,10 +131,19 @@ async def generate_responses_async(client, prompts, k_responses, temperature, ma
     # Create a semaphore to limit the number of concurrent requests
     semaphore = asyncio.Semaphore(max_concurrent)
     
+    # Create a progress bar for the batch
+    pbar = tqdm(total=len(prompts), desc="Generating batch responses", leave=True)
+    
+    # Modified async_generate_response that updates progress
+    async def async_generate_with_progress(client, prompt, model_name, max_tokens, temperature, k_responses, prompt_idx, semaphore):
+        result = await async_generate_response(client, prompt, model_name, max_tokens, temperature, k_responses, prompt_idx, semaphore)
+        pbar.update(1)  # Update progress bar after each task completes
+        return result
+    
     # Generate responses for each prompt in parallel
     tasks = []
     for i, prompt in enumerate(prompts):
-        task = async_generate_response(
+        task = async_generate_with_progress(
             client=client,
             prompt=prompt,
             model_name=model_name,
@@ -146,12 +155,15 @@ async def generate_responses_async(client, prompts, k_responses, temperature, ma
         )
         tasks.append(task)
     
-    # Wait for all tasks to complete with a progress bar
-    responses = []
-    for f in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Generating batch responses", leave=True):
-        responses.append(await f)
+    print(f"Submitting all {len(tasks)} tasks in batch and waiting for all to complete...")
     
-    # Sort responses by prompt index to maintain order
+    # Submit all tasks at once and wait for all to complete
+    responses = await asyncio.gather(*tasks)
+    
+    # Close progress bar
+    pbar.close()
+    
+    # Sort responses by prompt index to maintain order  
     responses.sort(key=lambda x: x["prompt_idx"])
     
     # Filter out failed responses if skip_failed is True
