@@ -214,12 +214,20 @@ async def main_async():
     
     # Set up API client with the specified settings
     api_base = args.api_base
-    api_key = args.api_key or os.environ.get("VLLM_API_KEY")
-    if not api_key and args.api_mode == "remote":
-        raise ValueError("API key is required for remote API mode. Set it with --api_key or in .env file.")
+    api_mode = args.api_mode
+    
+    # Handle API key based on mode
+    if api_mode == "local":
+        # For local vLLM server, use a dummy API key if none provided
+        api_key = args.api_key or os.environ.get("VLLM_API_KEY")
+        print("Using local vLLM server mode")
+    else:
+        # For remote API, require a real API key
+        api_key = args.api_key or os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("API key is required for remote API mode. Set it with --api_key or in .env file as OPENAI_API_KEY.")
         
     model_name = args.model
-    api_mode = args.api_mode
     max_concurrent = args.max_concurrent
     
     # Log the configuration
