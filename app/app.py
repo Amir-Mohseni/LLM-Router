@@ -105,7 +105,7 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
         type="messages"
     )
     
-    with gr.Row():
+    with gr.Row(elem_id="input-row"):
         with gr.Column(scale=6):
             msg = gr.Textbox(
                 label="Your message",
@@ -115,6 +115,11 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
                 container=False,
                 elem_id="inputField"
             )
+        with gr.Column(scale=1, min_width=100,elem_id="sendCol"):
+            submit_btn = gr.Button("Send", variant="primary",elem_id="send",)
+        with gr.Column(scale=1, min_width=100,elem_id="clearCol"):
+            clear_btn = gr.Button("Clear chat",elem_id="clear",)
+
         with gr.Column(scale=1, min_width=100,elem_id="dropCol"):
             model_dropdown = gr.Dropdown(
                 choices=["automatic"] + router.get_available_models(),
@@ -124,10 +129,7 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
                 show_label=False,
                 container=True
             )
-        with gr.Column(scale=1, min_width=100,elem_id="sendCol"):
-            submit_btn = gr.Button("Send", variant="primary",elem_id="send",)
-        with gr.Column(scale=1, min_width=100,elem_id="clearCol"):
-            clear_btn = gr.Button("Clear chat",elem_id="clear",)
+        
     
     # Add a notification component at the bottom
     with gr.Row():
@@ -150,6 +152,27 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
     
     # CSS for the notification
     css = """
+    .block.svelte-11xb1hd{
+        border-top-right-radius: 0px !important;
+        border-radius: 20px;
+    }
+    #input-row {
+        display: flex;
+        align-items: center;   
+        justify-content: space-between; 
+        gap: 10px;              
+    }
+    #input-row > div {
+        display: flex;
+        align-items: center;
+        height: 100%;
+    }
+    #model_dropdown{
+        margin: 0px !important;
+    }
+    .wrap default full svelte-ls20lj hide{
+
+    }
     #inputField{
         height: 50px;   
         overflow-y: auto;   
@@ -170,18 +193,21 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
     }
     #send, #clear  {
         margin: 5px 0px;
+        margin: 0px !important;
     } 
     .form.svelte-633qhp{
         border: none !important;    
     }
-    #sendCol, #clearCol {
-        height: 50px !important; 
-    } 
+    .container.svelte-1hfxrpf .wrap.svelte-1hfxrpf {
+        box-shadow: var(--input-shadow);
+        border: none !important;
+    }
     #sendCol, #clearCol{
         # margin-bottom: 50px !important;
     }
     #sendCol button, #clearCol button{
         border-radius: 20px !important; 
+        margin: auto 0;
     }
     #centered-examples {
         display: flex;
