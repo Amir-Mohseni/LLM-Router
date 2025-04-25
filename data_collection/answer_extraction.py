@@ -7,6 +7,7 @@ import json
 import os
 from typing import Dict, List, Tuple, Optional, Any, Union
 from math_verify import parse, verify
+from tqdm import tqdm
 
 def extract_answer(generated_text: str) -> str:
     """Extract the answer from the <answer>...</answer> tags"""
@@ -45,8 +46,8 @@ def process_results_file(input_file: str, output_file: Optional[str] = None) -> 
     correct_count = 0
     total_responses = 0
     
-    # Process each problem result
-    for result in results:
+    # Process each problem result with a progress bar
+    for result in tqdm(results, desc=f"Processing {os.path.basename(input_file)}", leave=False):
         problem_result = {
             "unique_id": result.get("unique_id"),
             "problem": result["problem"],
@@ -150,11 +151,11 @@ def process_directory(input_dir: str, output_dir: Optional[str] = None) -> Dict[
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
     
-    # Process each file in the directory
-    for filename in os.listdir(input_dir):
-        if not filename.endswith('.jsonl'):
-            continue
-            
+    # Get all JSONL files in the directory
+    jsonl_files = [f for f in os.listdir(input_dir) if f.endswith('.jsonl')]
+    
+    # Process each file in the directory with a progress bar
+    for filename in tqdm(jsonl_files, desc="Processing files", leave=True):
         input_path = os.path.join(input_dir, filename)
         
         # Determine output path if needed
@@ -240,7 +241,15 @@ if __name__ == "__main__":
         if args.by_category:
             category_metrics = analyze_by_category(processed_results)
             print("\nResults by category:")
-            for category, metrics in category_metrics.items():
+            
+            # Sort categories by accuracy (descending)
+            sorted_categories = sorted(
+                category_metrics.items(),
+                key=lambda x: x[1]['accuracy'],
+                reverse=True
+            )
+            
+            for category, metrics in sorted_categories:
                 print(f"  {category}: {metrics['accuracy']:.2%} ({metrics['correct_responses']}/{metrics['total_responses']})")
         
         if output_path:
