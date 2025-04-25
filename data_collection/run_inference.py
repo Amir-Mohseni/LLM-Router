@@ -16,9 +16,6 @@ load_dotenv()
 # Import OpenAI client
 from openai import AsyncOpenAI
 
-# Import dataset handling
-from datasets import load_dataset
-
 # Import local modules
 from config import (
     DATASET_NAME, DATASET_SPLIT,
@@ -31,6 +28,8 @@ from prompts import (
     MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT,
     env as jinja_env
 )
+# Import dataset loading function
+from dataset import load_math_dataset
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run inference with LLMs on math problems")
@@ -237,24 +236,21 @@ async def main_async():
     print(f"  Model: {model_name}")
     print(f"  Dataset: {DATASET_NAME} (split: {DATASET_SPLIT})")
     
-    # Handle 'all' or specific number of problems
-    if args.num_problems.lower() == 'all':
-        num_problems_str = "all"
-        num_problems = -1  # Special value to indicate all problems
-    else:
+    # Handle 'all' or specific number of problems from args
+    num_problems_arg = args.num_problems
+    if num_problems_arg.lower() != 'all':
         try:
-            num_problems = int(args.num_problems)
-            num_problems_str = str(num_problems)
-            if num_problems <= 0:
-                print("Warning: num_problems must be positive or 'all'. Using all problems.")
-                num_problems = -1
-                num_problems_str = "all"
+            num_problems_val = int(num_problems_arg)
+            if num_problems_val <= 0:
+                print(f"Warning: num_problems must be positive or 'all'. Using default from config: {NUM_PROBLEMS}")
+                num_problems_val = NUM_PROBLEMS
         except ValueError:
-            print(f"Warning: Invalid num_problems value '{args.num_problems}'. Using default {NUM_PROBLEMS}.")
-            num_problems = NUM_PROBLEMS
-            num_problems_str = str(num_problems)
-    
-    print(f"  Problems: {num_problems_str}")
+            print(f"Warning: Invalid num_problems value '{num_problems_arg}'. Using default from config: {NUM_PROBLEMS}")
+            num_problems_val = NUM_PROBLEMS
+    else:
+        num_problems_val = 'all' # Use 'all' string
+        
+    print(f"  Problems to process: {num_problems_val}")
     print(f"  Responses per problem: {args.k_responses}")
     print(f"  Temperature: {args.temperature}")
     print(f"  Max tokens: {args.max_tokens}")
@@ -263,15 +259,12 @@ async def main_async():
     print(f"  Output directory: {args.output_dir}")
     print(f"  Output file: {args.output_file}")
     
-    # Load the dataset
-    print(f"Loading dataset {DATASET_NAME}...")
-    dataset = load_dataset(DATASET_NAME, split=DATASET_SPLIT)
-    
-    # Limit to the desired number of problems
-    if num_problems > 0:
-        dataset = dataset.select(range(min(num_problems, len(dataset))))
-    
-    print(f"Loaded {len(dataset)} problems")
+    # Load the dataset using the new function and parsed argument
+    dataset = load_math_dataset(
+        dataset_name=DATASET_NAME, 
+        split=DATASET_SPLIT, 
+        num_problems=num_problems_val
+    )
     
     # Initialize the async OpenAI client
     print(f"Initializing async OpenAI client...")
