@@ -11,8 +11,8 @@ from tqdm import tqdm
 
 def extract_answer(generated_text: str) -> str:
     """Extract the answer from the <answer>...</answer> tags"""
-    answer_match = re.search(r'<answer>(.*?)</answer>', generated_text, re.DOTALL)
-    return answer_match.group(1).strip() if answer_match else "No answer found in formatted output"
+    answer_match = list(re.finditer(r'<answer>(.*?)</answer>', generated_text, re.DOTALL))
+    return answer_match[-1].group(1).strip() if answer_match else "No answer found in formatted output"
 
 def verify_answer(ground_truth: str, generated_answer: str) -> bool:
     """Verify if the generated answer is correct"""
