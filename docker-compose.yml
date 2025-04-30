@@ -1,0 +1,24 @@
+version: '3.10'
+
+services:
+  llm-router:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      # Mount these directories for persistent data storage
+      - ./data_collection/inference_results:/app/data_collection/inference_results
+      - ./extracted_answers:/app/extracted_answers
+      # Mount .env for configuration
+      - ./.env:/app/.env
+    environment:
+      # Set environment variables here (will override .env)
+      - PYTHONPATH=/app
+      # Optional: Add API keys here or use .env file
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - VLLM_API_KEY=${VLLM_API_KEY}
+    # Run in interactive mode with pseudo-TTY
+    tty: true
+    stdin_open: true
+    # Default command provides a shell
+    command: bash 

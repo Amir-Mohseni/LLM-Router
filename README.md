@@ -167,6 +167,67 @@ The Gradio interface can be customized in `app.py` - refer to the [Gradio docume
 - The application routes simpler queries to smaller models to balance performance and quality
 - For multi-turn conversations, history is limited to the most recent exchanges
 
+## 🐳 Docker Setup
+
+The LLM Router can be run in a Docker container for easy deployment and reproducibility. This approach ensures all dependencies are properly installed and isolated from your system.
+
+### Building and Running with Docker
+
+1. **Prerequisites:**
+   - [Docker](https://docs.docker.com/get-docker/) installed on your system
+   - [Docker Compose](https://docs.docker.com/compose/install/) (optional, for easier management)
+
+2. **Simple Docker Usage:**
+   ```bash
+   # Build the Docker image
+   docker build -t llm-router .
+   
+   # Run the container with an interactive shell
+   docker run -it --rm llm-router
+   ```
+
+3. **Using Docker Compose (Recommended):**
+   ```bash
+   # Start the container
+   docker-compose up -d
+   
+   # Access the container shell
+   docker-compose exec llm-router bash
+   
+   # Stop the container when finished
+   docker-compose down
+   ```
+
+### Container Commands
+
+The Docker container includes shortcut commands for common operations:
+
+```bash
+# Run the standard tests
+docker-compose exec llm-router test
+
+# Run the full dataset validation
+docker-compose exec llm-router validate
+
+# Run data collection (inference)
+docker-compose exec llm-router collect your_output_filename.jsonl
+
+# Extract and analyze answers
+docker-compose exec llm-router extract path/to/inference_results/your_file.jsonl
+```
+
+### Configuration
+
+To configure API keys and other settings:
+
+1. Create a `.env` file in the project root with your API keys:
+   ```
+   VLLM_API_KEY=your_key_here
+   OPENAI_API_KEY=your_key_here
+   ```
+
+2. Docker Compose will automatically mount this file into the container.
+
 ## 🧪 Testing
 
 This project includes unit tests and integration tests to ensure the quality and correctness of the data collection and processing components. Tests are implemented using `pytest`.
