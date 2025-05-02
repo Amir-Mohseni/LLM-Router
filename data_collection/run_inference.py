@@ -8,19 +8,22 @@ from typing import List, Dict, Any, Optional
 from tqdm import tqdm
 from pathlib import Path
 import jinja2
+import logging
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Import OpenAI client
-from openai import AsyncOpenAI
+# Set up logger
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Import local modules
 from config import (
     DATASET_NAME, DATASET_SPLIT,
     NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR,
-    PROBLEM_BATCH_SIZE, API_MODE, API_BASE, 
+    PROBLEM_BATCH_SIZE, API_MODE, API_BASE, API_KEY_NAME,
     MODEL_NAME, GENERATION_KWARGS,
     MAX_CONCURRENT_REQUESTS
 )
@@ -30,6 +33,9 @@ from prompts import (
 )
 # Import dataset loading function
 from dataset import load_math_dataset
+
+# Import our LLM module
+from LLM import create_llm, BaseLLM, REMOTE_API_PARAMS, LOCAL_VLLM_PARAMS
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run inference with LLMs on math problems")
@@ -82,29 +88,39 @@ def format_prompt(question: str, choices: Optional[List[str]] = None) -> str:
         # For non-MCQ questions, use the regular prompt with proper Jinja rendering
         return jinja_env.from_string(MATH_PROMPT).render(question=question)
 
-async def async_generate_response(client, prompt, model_name, max_tokens, temperature, k_responses, prompt_idx, semaphore):
-    """Generate responses for a single prompt using the OpenAI API client asynchronously"""
+async def async_generate_response(llm: BaseLLM, prompt: str, prompt_idx: int, semaphore, k_responses: int = 1) -> Dict:
+    """Generate responses for a single prompt using the LLM module asynchronously"""
     async with semaphore:
         try:
-            # Prepare generation parameters
-            params = {
-                "model": model_name,
-                "prompt": prompt,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "n": k_responses,
-                **GENERATION_KWARGS  # Include advanced generation settings from config
-            }
-            
-            # Use 'n' parameter to generate k responses in one API call
-            completion = await client.completions.create(**params)
-            
-            # Extract and store all responses
             responses = []
-            for choice in completion.choices:
-                responses.append({
-                    "full_response": choice.text.strip()
-                })
+            error_count = 0
+            
+            # Generate k responses
+            for i in range(k_responses):
+                try:
+                    # Use the LLM module to generate a response
+                    response_text = await llm.ainvoke(prompt)
+                    responses.append({
+                        "full_response": response_text.strip()
+                    })
+                except Exception as e:
+                    error_count += 1
+                    error_message = str(e)
+                    logger.error(f"Request {i+1}/{k_responses} for prompt {prompt_idx} failed: {error_message}")
+                        
+                    responses.append({
+                        "full_response": f"Error generating response: {error_message}"
+                    })
+            
+            # Check if all responses failed
+            if error_count == k_responses:
+                logger.error(f"All {k_responses} responses failed for prompt {prompt_idx}")
+                return {
+                    "prompt": prompt,
+                    "responses": responses,
+                    "success": False,
+                    "prompt_idx": prompt_idx
+                }
             
             return {
                 "prompt": prompt,
@@ -114,9 +130,11 @@ async def async_generate_response(client, prompt, model_name, max_tokens, temper
             }
             
         except Exception as e:
-            print(f"Error generating responses for prompt {prompt_idx}: {e}")
+            error_message = str(e)
+            logger.error(f"Error generating responses for prompt {prompt_idx}: {error_message}")
+            
             # Add empty responses to maintain count
-            responses = [{"full_response": f"Error generating response: {str(e)}"} for _ in range(k_responses)]
+            responses = [{"full_response": f"Error generating response: {error_message}"} for _ in range(k_responses)]
             return {
                 "prompt": prompt,
                 "responses": responses,
@@ -124,8 +142,8 @@ async def async_generate_response(client, prompt, model_name, max_tokens, temper
                 "prompt_idx": prompt_idx
             }
 
-async def generate_responses_async(client, prompts, k_responses, temperature, max_tokens, model_name, max_concurrent, skip_failed=True):
-    """Generate k responses for each prompt using the OpenAI API client with efficient parallelization"""
+async def generate_responses_async(llm: BaseLLM, prompts: List[str], k_responses: int, max_concurrent: int, skip_failed: bool = True):
+    """Generate k responses for each prompt using the LLM module with efficient parallelization"""
     
     # Create a semaphore to limit the number of concurrent requests
     semaphore = asyncio.Semaphore(max_concurrent)
@@ -134,8 +152,14 @@ async def generate_responses_async(client, prompts, k_responses, temperature, ma
     pbar = tqdm(total=len(prompts), desc="Generating batch responses", leave=True)
     
     # Modified async_generate_response that updates progress
-    async def async_generate_with_progress(client, prompt, model_name, max_tokens, temperature, k_responses, prompt_idx, semaphore):
-        result = await async_generate_response(client, prompt, model_name, max_tokens, temperature, k_responses, prompt_idx, semaphore)
+    async def async_generate_with_progress(llm, prompt, prompt_idx, semaphore, k_responses):
+        result = await async_generate_response(
+            llm=llm, 
+            prompt=prompt, 
+            prompt_idx=prompt_idx, 
+            semaphore=semaphore,
+            k_responses=k_responses
+        )
         pbar.update(1)  # Update progress bar after each task completes
         return result
     
@@ -143,14 +167,11 @@ async def generate_responses_async(client, prompts, k_responses, temperature, ma
     tasks = []
     for i, prompt in enumerate(prompts):
         task = async_generate_with_progress(
-            client=client,
+            llm=llm,
             prompt=prompt,
-            model_name=model_name,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            k_responses=k_responses,
             prompt_idx=i,
-            semaphore=semaphore
+            semaphore=semaphore,
+            k_responses=k_responses
         )
         tasks.append(task)
     
@@ -169,66 +190,68 @@ async def generate_responses_async(client, prompts, k_responses, temperature, ma
     if skip_failed:
         responses = [response for response in responses if response["success"]]
     
-    # Return the responses (without the prompt_idx and success fields)
     return [{
         "prompt": response["prompt"],
-        "responses": response["responses"]
+        "responses": response["responses"],
     } for response in responses]
-
-def save_results(results: List[Dict], model_name: str, num_problems: int, 
-                k_responses: int, output_dir: str) -> str:
-    """Save results to a JSONL file with checkpointing"""
-    
-    # Create output directory if it doesn't exist
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    
-    # Create a unique filename
-    cleaned_model_name = model_name.replace('/', '_')
-    output_file = os.path.join(
-        output_dir, 
-        f"{cleaned_model_name}_{num_problems}problems_{k_responses}k_{int(time.time())}.jsonl"
-    )
-    
-    # Save the results in JSONL format (one JSON object per line)
-    with open(output_file, "w") as f:
-        for result in results:
-            f.write(json.dumps(result) + "\n")
-    
-    return output_file
 
 def save_batch(batch_results: List[Dict], output_file: str):
     """Save a batch of results to the output file in JSONL format."""
+    # Ensure the directory exists
+    output_dir = os.path.dirname(output_file)
+    if output_dir:
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        
+    # Append the batch results to the file
     with open(output_file, "a") as f:
         for result in batch_results:
             f.write(json.dumps(result) + "\n")
+    
+    logger.info(f"Saved {len(batch_results)} results to {output_file}")
 
 def format_choices(choices: List[str]) -> List[str]:
     """Format the choices with option letters (A, B, C, etc.)"""
     option_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     return [f"{option_letters[i]}. {choice}" for i, choice in enumerate(choices)]
 
+def get_filtered_kwargs(api_mode):
+    """Get the appropriate generation kwargs based on API mode."""
+    if api_mode.lower() == "remote":
+        # For remote API, only include parameters that are supported
+        return {k: v for k, v in GENERATION_KWARGS.items() if k in REMOTE_API_PARAMS}
+    else:
+        # For local vLLM, we can include all parameters as specified in config
+        return GENERATION_KWARGS
+
 async def main_async():
     # Parse command line arguments
     args = parse_args()
     
-    # Set up API client with the specified settings
-    api_base = args.api_base
+    # Set up LLM parameters
     api_mode = args.api_mode
-    
-    # Handle API key based on mode
-    if api_mode == "local":
-        # For local vLLM server, use a dummy API key if none provided
-        api_key = args.api_key or os.environ.get("VLLM_API_KEY")
-        print("Using local vLLM server mode")
-    else:
-        # For remote API, require a real API key
-        api_key = args.api_key or os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("API key is required for remote API mode. Set it with --api_key or in .env file as OPENAI_API_KEY.")
-        
+    api_base = args.api_base
     model_name = args.model
     max_concurrent = args.max_concurrent
     
+    # Handle API key based on mode
+    if api_mode == "remote":
+        # For remote API, require a real API key
+        api_key = args.api_key or os.environ.get(API_KEY_NAME)
+        if not api_key:
+            raise ValueError(f"API key is required for remote API mode. Set it with --api_key or in .env file as {API_KEY_NAME}.")
+    else:
+        # For local vLLM server, use empty key
+        api_key = "EMPTY"
+    
+    # Filter generation kwargs based on API mode
+    filtered_kwargs = get_filtered_kwargs(api_mode)
+    
+    # Log which parameters were filtered out
+    if api_mode == "remote":
+        excluded_params = set(GENERATION_KWARGS.keys()) - set(filtered_kwargs.keys())
+        if excluded_params:
+            logger.warning(f"Excluding incompatible parameters for remote mode: {excluded_params}")
+        
     # Log the configuration
     print(f"Running inference with the following settings:")
     print(f"  API Mode: {api_mode}")
@@ -259,6 +282,9 @@ async def main_async():
     print(f"  Output directory: {args.output_dir}")
     print(f"  Output file: {args.output_file}")
     
+    # Only show generation parameters that will actually be used
+    print(f"  Generation parameters: {filtered_kwargs}")
+    
     # Load the dataset using the new function and parsed argument
     dataset = load_math_dataset(
         dataset_name=DATASET_NAME, 
@@ -266,18 +292,30 @@ async def main_async():
         num_problems=num_problems_val
     )
     
-    # Initialize the async OpenAI client
-    print(f"Initializing async OpenAI client...")
-    start_time = time.time()
+    # Initialize LLM
+    print(f"Initializing LLM...")
     
-    # Create OpenAI client with async support
-    client = AsyncOpenAI(api_key=api_key, base_url=api_base)
-    
-    model_init_time = time.time() - start_time
-    print(f"Client initialized in {model_init_time:.2f} seconds")
+    try:
+        # Use our LLM module to create the appropriate LLM instance with filtered kwargs
+        llm = create_llm(
+            model_name=model_name,
+            api_mode=api_mode,
+            api_key=api_key, 
+            api_base=api_base,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+            **filtered_kwargs  # Use properly filtered kwargs
+        )
+        print(f"LLM initialized")
+    except Exception as e:
+        logger.error(f"Error initializing LLM: {e}")
+        if api_mode == "local":
+            print("\nFor local mode, make sure the vLLM server is running. You can start it with:")
+            print(f"python -m data_collection.serve_llm --model {model_name}")
+        return
     
     if api_mode == "local":
-        print(f"NOTE: Make sure vLLM server is running with command: vllm serve {model_name}")
+        print(f"NOTE: Make sure vLLM server is running with command: python -m data_collection.serve_llm --model {model_name}")
     
     # Create output file path
     output_file = os.path.join(args.output_dir, args.output_file)
@@ -314,7 +352,9 @@ async def main_async():
         print(f"Found {len(failed_ids)} questions with failed responses")
     else:
         # Create the output directory if it doesn't exist
-        Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+        output_dir = os.path.dirname(output_file)
+        if output_dir:
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
     
     # Determine which questions need processing
     indices_to_process = []
@@ -356,8 +396,6 @@ async def main_async():
                 problem = dataset[i] 
                 question_id = problem.get("unique_id", f"q{i}") # Get ID for info storage
                 
-                # Removed skip checks here as they are done before batching
-                
                 # Get the question and determine if it's MCQ
                 question = problem["question"]
                 is_mcq = problem.get("choices") is not None
@@ -398,12 +436,9 @@ async def main_async():
             
             print(f"Generating responses for {len(batch_prompts)} prompts with up to {max_concurrent} concurrent requests...")
             batch_responses = await generate_responses_async(
-                client=client,
+                llm=llm,
                 prompts=batch_prompts,
                 k_responses=args.k_responses,
-                temperature=args.temperature,
-                max_tokens=args.max_tokens,
-                model_name=model_name,
                 max_concurrent=max_concurrent,
                 skip_failed=False  # Don't skip failed responses, we're tracking them
             )
@@ -413,6 +448,8 @@ async def main_async():
             
             # Combine problem info with responses for this batch
             batch_results = []
+            successful_responses_in_batch = 0
+            
             for problem_info, response_set in zip(batch_problems_info, batch_responses):
                 question_id = problem_info["unique_id"]
                 
@@ -423,12 +460,12 @@ async def main_async():
                 # Track success/failure for next run
                 if not all_failed:
                     successful_ids.add(question_id)
+                    successful_responses_in_batch += 1
                     if question_id in failed_ids:
                         failed_ids.remove(question_id)
                 else:
-                    # If server connection error, mark for retry
                     failed_ids.add(question_id)
-                    print(f"Warning: All responses failed for question {question_id}, will retry in next run")
+                    logger.warning(f"All responses failed for question {question_id}, will retry in next run")
                 
                 batch_results.append({
                     "unique_id": problem_info["unique_id"],
@@ -442,15 +479,35 @@ async def main_async():
                     "responses": response_set["responses"]
                 })
             
-            # Save this batch as a checkpoint
-            save_batch(batch_results, output_file)
+            # Only save the batch results if at least one response was successful
+            if successful_responses_in_batch > 0:
+                # Save this batch as a checkpoint
+                save_batch(batch_results, output_file)
+                print(f"Checkpoint saved with {successful_responses_in_batch} successful questions")
+            else:
+                logger.warning(f"No successful responses in this batch, skipping checkpoint save")
+                
+            # Check for parameter errors in failures
+            if any("unexpected keyword" in resp["full_response"] for response_set in batch_responses for resp in response_set["responses"]):
+                logger.error("\nWARNING: Some errors indicate incompatible parameters. Check GENERATION_KWARGS in config.py for the selected API mode.")
+            
+            # Ask if user wants to continue or abort
+            if successful_responses_in_batch == 0:
+                try:
+                    response = input("\nAll requests in this batch failed. Continue with next batch? (y/n): ").strip().lower()
+                    if response != 'y':
+                        print("Aborting batch processing. Saving current results...")
+                        break
+                except KeyboardInterrupt:
+                    print("\nAborting batch processing. Saving current results...")
+                    break
             
             # Update progress description to show completion status
             pbar.set_description(f"Processing dataset - {batch_end}/{len(indices_to_process)} problems ({batch_idx+1}/{total_batches} batches)")
             # Update progress bar by the number of items processed in this batch
             pbar.update(len(batch_indices)) 
             
-            print(f"Checkpoint saved, {batch_end}/{len(indices_to_process)} problems processed")
+            print(f"Batch complete, {batch_end}/{len(indices_to_process)} problems processed")
             print(f"Success status: {len(successful_ids)} questions successfully processed")
             print(f"Failure status: {len(failed_ids)} questions with failed responses")
     

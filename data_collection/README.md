@@ -1,6 +1,147 @@
-# Data Collection for LLM Router
+# Data Collection Module
 
-This directory contains tools for collecting and analyzing model responses to problems.
+This module provides tools for collecting language model responses on math problems.
+
+## Components
+
+1. **LLM.py**: Unified LLM interface supporting both local and remote models
+   - `BaseLLM`: Abstract base class with common functionality
+   - `RemoteLLM`: Implementation for API-based models
+   - `LocalLLM`: Implementation for local vLLM models
+   - `create_llm()`: Factory function to instantiate the appropriate LLM type
+2. **run_inference.py**: Script to run inference on math datasets
+3. **serve_llm.py**: Script to start a local vLLM server
+4. **dataset.py**: Functions to load datasets from Hugging Face
+5. **config.py**: Configuration settings for model, API, dataset, etc.
+
+## Usage Guide
+
+### Polymorphic LLM Architecture
+
+The system uses a polymorphic design to handle both local and remote LLMs through a unified interface:
+
+- **BaseLLM**: Abstract base class that defines a common interface for all LLM types
+- **RemoteLLM**: Implementation for remote API-based models (OpenAI, Google, etc.)
+- **LocalLLM**: Implementation for local models running on a vLLM server
+- **Parameter Compatibility**: Automatic filtering of incompatible parameters between model types
+
+This architecture provides:
+1. Clean separation between model types
+2. Unified interface for all LLM operations
+3. Proper handling of parameter incompatibilities
+4. Appropriate error reporting and logging
+
+### Running Inference
+
+The `run_inference.py` script can run inference using either remote API models or local vLLM models.
+
+#### Basic Usage:
+
+```bash
+# Run inference with default settings
+python -m data_collection.run_inference --output_file results.jsonl
+
+# Run with custom model and parameters
+python -m data_collection.run_inference \
+  --model gemma-3-27b-it \
+  --api_mode remote \
+  --temperature 0.7 \
+  --max_tokens 4096 \
+  --k_responses 5 \
+  --output_file custom_results.jsonl
+```
+
+#### Using Local Mode (vLLM):
+
+To use a local model with vLLM:
+
+1. First, start the vLLM server:
+   ```bash
+   python -m data_collection.serve_llm --model meta-llama/Llama-2-13b-chat-hf
+   ```
+
+2. Then run inference in a separate terminal:
+   ```bash
+   python -m data_collection.run_inference \
+     --api_mode local \
+     --api_base http://localhost:8000/v1 \
+     --model meta-llama/Llama-2-13b-chat-hf \
+     --output_file local_results.jsonl
+   ```
+
+#### Using Remote Mode:
+
+For remote API services like OpenAI or Google:
+
+```bash
+# Set your API key in environment variables
+export GOOGLE_API_KEY="your-api-key"
+
+# Run inference
+python -m data_collection.run_inference \
+  --api_mode remote \
+  --api_base https://generativelanguage.googleapis.com/v1beta/openai/ \
+  --model gemma-3-27b-it \
+  --output_file google_results.jsonl
+```
+
+### Configuration
+
+You can configure default values in `config.py`:
+
+```python
+# Set your preferred default model and API mode
+MODEL_NAME = "gemma-3-27b-it"
+API_MODE = "remote"  # or "local"
+API_KEY_NAME = "GOOGLE_API_KEY"  # env var name for API key
+API_BASE = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+# Generation parameters (will be filtered based on API mode)
+GENERATION_KWARGS = {
+    "temperature": 0.7,
+    "max_tokens": 2048,
+    "echo": True,              # Only used for local models
+    "repetition_penalty": 1.2, # Only used for local models
+    "stop": ["<end_of_turn>"]  # Only used for local models
+}
+
+# For local vLLM server
+VLLM_HOST = "0.0.0.0"
+VLLM_PORT = 8000
+VLLM_MAX_MODEL_LEN = 8192
+```
+
+### Advanced Usage
+
+#### Processing Large Datasets:
+
+For large datasets, use batch processing:
+
+```bash
+python -m data_collection.run_inference \
+  --num_problems all \
+  --batch_size 20 \
+  --max_concurrent 5 \
+  --output_file large_dataset.jsonl
+```
+
+#### Retrying Failed Queries:
+
+If some queries fail, you can retry just those:
+
+```bash
+python -m data_collection.run_inference \
+  --retry_failed \
+  --output_file previous_results.jsonl
+```
+
+#### Extracting Answers:
+
+After collecting responses, extract structured answers:
+
+```bash
+python -m data_collection.answer_extraction --input results.jsonl
+```
 
 ## Setup
 
@@ -24,8 +165,10 @@ This directory contains tools for collecting and analyzing model responses to pr
 
 - `config.py`: Configuration settings for datasets, models, generation parameters, API settings and batching
 - `prompts.py`: Prompt templates for generating responses from models
+- `LLM.py`: Polymorphic LLM implementation with support for remote and local models
 - `run_inference.py`: Main script for running inference on a single model
 - `answer_extraction.py`: Script for extracting and evaluating answers from the model outputs
+- `serve_llm.py`: Script to start and manage a local vLLM server
 
 ## Workflow
 
@@ -38,6 +181,8 @@ This separation allows for more efficient processing and makes it easier to expe
 
 ## Features
 
+- **Polymorphic LLM design**: Unified interface for all LLM types with proper inheritance
+- **Parameter compatibility**: Automatic filtering of incompatible parameters between model types
 - **Asynchronous processing**: Efficient parallel API calls for maximum throughput
 - **Unified API interface**: Single API approach for both local (vLLM) and remote (OpenAI) services
 - **Optimized parallelization**: Uses batched requests with n=k parameter for efficient response generation
@@ -72,7 +217,7 @@ The dataset is expected to have the following fields:
 
 ### API Modes
 
-The script supports two API modes which share the same configuration format:
+The script supports two API modes which share the same interface:
 
 1. **Local mode**: Uses a local vLLM server (requires starting the server separately)
 2. **Remote mode**: Uses remote APIs like OpenAI (requires API key)

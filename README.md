@@ -12,6 +12,19 @@
 ### Project Description
 This project implements an intelligent routing system for Large Language Models (LLMs) that optimizes for cost while maintaining answer quality. The system uses a BERT-based router trained on historical performance data to direct queries to the most cost-effective LLM capable of answering the query correctly.
 
+### Architecture
+The system uses a polymorphic design with:
+
+1. **BaseLLM** - Abstract base class with common LLM functionality
+2. **RemoteLLM** - Concrete implementation for API-based models (OpenAI, etc.)
+3. **LocalLLM** - Concrete implementation for local models (vLLM server)
+4. **Factory Function** - `create_llm()` that instantiates the appropriate LLM type
+
+This architecture enables:
+- Automatic parameter compatibility handling between model types
+- Support for both local and remote models through a unified interface
+- Clean separation between model types while sharing common functionality
+
 ### Implementation Steps
 
 1. **Initial Query Distribution**
@@ -51,13 +64,61 @@ This project implements an intelligent routing system for Large Language Models 
    - Model evaluation and validation
 
 ### Technologies
-- Python
-- BERT
-- Various LLM APIs
+- Python 3.10+
+- LangChain
+- vLLM for local model serving
+- Various LLM APIs (OpenAI, etc.)
+- Hugging Face Transformers
 - Database for storing results and training data
 
 ### Getting Started
-(To be added as project develops)
+
+#### Prerequisites
+- Python 3.10+
+- Docker (optional, for containerized setup)
+- GPU (recommended for local model serving)
+
+#### Installation
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Amir-Mohseni/LLM-Router.git
+   cd LLM-Router
+   ```
+
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. Set up environment variables:
+   Create a `.env` file in the project root with your API keys:
+   ```
+   OPENAI_API_KEY=your_openai_key
+   VLLM_API_KEY=optional_key_for_vllm
+   ```
+
+#### Running with Docker (Recommended)
+1. Start the services:
+   ```bash
+   docker-compose up -d
+   ```
+
+2. Access the main container:
+   ```bash
+   docker-compose exec llm-router bash
+   ```
+
+3. Run data collection with remote models:
+   ```bash
+   # Inside the container
+   collect my_results.jsonl
+   ```
+
+4. Run data collection with local models:
+   ```bash
+   # Inside the container
+   collect my_local_results.jsonl --api_mode local
+   ```
 
 ### Contributing
 This is a research project for a Computer Science Bachelor's degree. While it's primarily an academic project, feedback and suggestions are welcome through the issues section.
@@ -96,6 +157,7 @@ The application currently integrates with:
 
 - Python 3.8+
 - A Hugging Face account with API access
+- Docker (optional, for containerized setup)
 
 ### Setup
 
@@ -130,9 +192,14 @@ Then open your browser at the URL displayed in the terminal (typically http://12
 ## 📁 Project Structure
 
 - **app.py**: Main Gradio interface and application entry point
-- **llm.py**: LLM handler that manages API calls to Hugging Face
+- **data_collection/LLM.py**: Polymorphic LLM interface with support for:
+  - `BaseLLM`: Abstract base class
+  - `RemoteLLM`: API-based models
+  - `LocalLLM`: Local vLLM server models
+  - `create_llm()`: Factory function for creating appropriate LLM instances
+- **data_collection/run_inference.py**: Script for running inference on datasets with parameter compatibility
+- **data_collection/serve_llm.py**: Script for running the local vLLM server
 - **router.py**: Smart router that determines which model to use based on content
-- **requirements.txt**: Python dependencies
 
 ## 🧠 How the Router Works
 
@@ -209,17 +276,36 @@ docker-compose exec llm-router test
 # Run the full dataset validation
 docker-compose exec llm-router validate
 
-# Run data collection (inference)
+# Run data collection with remote models (default)
 docker-compose exec llm-router collect your_output_filename.jsonl
+
+# Run data collection with local models
+docker-compose exec llm-router collect your_output_filename.jsonl --api_mode local
+
+# Start the vLLM server (separate container or terminal)
+docker-compose exec llm-router serve_vllm [model_name]
 
 # Extract and analyze answers
 docker-compose exec llm-router extract path/to/inference_results/your_file.jsonl
 ```
 
+### Multi-Container Setup
+
+The Docker Compose configuration includes two services:
+
+1. **llm-router**: Main service for running inference and analysis
+2. **vllm-server**: Service for running the local vLLM server
+
+To run both services:
+```bash
+docker-compose up -d
+```
+
+The vLLM server will be available at http://vllm-server:8000/v1 within the Docker network.
+
 ### Configuration
 
 To configure API keys and other settings:
-
 1. Create a `.env` file in the project root with your API keys:
    ```
    VLLM_API_KEY=your_key_here
@@ -250,15 +336,9 @@ These tests cover individual functions and module integration using small data s
 
 These tests validate the consistency and integrity of the *entire* dataset specified in the configuration. They load all data and can be **very slow** to run.
 
-1.  **Navigate to the project root directory.**
-2.  **Make the validation script executable (if you haven't already):**
-    ```bash
-    chmod +x scripts/run_validation.sh
-    ```
-3.  **Run the full validation tests:**
-    ```bash
-    ./scripts/run_validation.sh
-    ```
+```bash
+./scripts/run_validation.sh
+```
 
 ## 📝 License
 
@@ -271,3 +351,5 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## 📧 Contact
 
 For questions or feedback, please open an issue in the GitHub repository. 
+
+

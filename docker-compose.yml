@@ -21,4 +21,37 @@ services:
     tty: true
     stdin_open: true
     # Default command provides a shell
-    command: bash 
+    command: bash
+    # Add network to allow communication with vllm-server
+    networks:
+      - llm-network
+
+  # Add vLLM server as a separate service
+  vllm-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: serve_vllm
+    ports:
+      - "8000:8000"
+    # Optional: Uncomment below to use GPU for vLLM
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    volumes:
+      - ./.env:/app/.env
+      # Cache models to avoid re-downloading
+      - ./models:/app/models
+    environment:
+      - PYTHONPATH=/app
+      - HF_HOME=/app/models
+    networks:
+      - llm-network
+
+networks:
+  llm-network:
+    driver: bridge 
