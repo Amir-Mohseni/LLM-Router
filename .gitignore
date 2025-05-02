@@ -8,3 +8,5 @@ TODO.txt
 
 # Data
 data_collection/inference_results/*
+data_collection/extracted_answers/*
+

@@ -12,14 +12,36 @@ from tqdm import tqdm
 def extract_answer(generated_text: str) -> str:
     """Extract the answer from the <answer>...</answer> tags"""
     answer_match = list(re.finditer(r'<answer>(.*?)</answer>', generated_text, re.DOTALL))
-    return answer_match[-1].group(1).strip() if answer_match else "No answer found in formatted output"
+    if answer_match:
+        answer_text = answer_match[-1].group(1).strip()
+
+        # Find all \boxed{...} instances and return the last full match including \boxed{}
+        boxed_match = list(re.finditer(r'(\\boxed\{.*?\})', answer_text))
+        dollar_math_match = list(re.finditer(r'(\$.*?\$)', answer_text))
+        if boxed_match:
+            return boxed_match[-1].group(1).strip()
+        elif dollar_math_match:
+            return dollar_math_match[-1].group(1).strip()
+        else:
+            return answer_text
+    else:
+        boxed_match = list(re.finditer(r'(\\boxed\{.*?\})', generated_text))
+        dollar_math_match = list(re.finditer(r'(\$.*?\$)', generated_text))
+        if boxed_match:
+            return boxed_match[-1].group(1).strip()
+        elif dollar_math_match:
+            return dollar_math_match[-1].group(1).strip()
+        else:
+            return "No answer found in formatted output"
 
 def verify_answer(ground_truth: str, generated_answer: str) -> bool:
     """Verify if the generated answer is correct"""
     try:
         gt = parse(ground_truth)
         ga = parse(generated_answer)
-        return verify(gt, ga) or verify(ga, gt)
+        
+        clean_ga = re.sub(r'\\boxed\{(.*?)\}', r'\1', generated_answer)
+        return verify(gt, ga) or verify(ga, gt) or verify(gt, clean_ga) or verify(clean_ga, gt)
     except Exception as e:
         print(f"Error verifying answers: {e}")
         return False
@@ -65,6 +87,7 @@ def process_results_file(input_file: str, output_file: Optional[str] = None) -> 
             extracted_answer = extract_answer(response["full_response"])
             if result.get("is_mcq", False):
                 correct_answer = chr(result["choice_index_correct"] + 65)  # Convert 0-based index to uppercase letter
+                correct_answer = f'\\boxed{{{correct_answer}}}' # Wrap the correct answer in \boxed{}
             else:
                 correct_answer = result["answer_correct"]
             is_correct = verify_answer(
@@ -201,19 +224,19 @@ if __name__ == "__main__":
     output_path = args.output
     
     # Create extracted_answers directory 
-    os.makedirs("extracted_answers", exist_ok=True)
+    os.makedirs("data_collection/extracted_answers", exist_ok=True)
     
     # Set default output directory to 'extracted_answers' if not specified
     if not output_path:
         if os.path.isdir(input_path):
-            output_path = "extracted_answers"
+            output_path = "data_collection/extracted_answers"
         else:
             # For single file, create the directory and use the same filename with 'processed_' prefix
-            output_path = os.path.join("extracted_answers", f"processed_{os.path.basename(input_path)}")
+            output_path = os.path.join("data_collection/extracted_answers", f"processed_{os.path.basename(input_path)}")
     else:
         # If output_path is just a filename without directory component, place it in extracted_answers
         if not os.path.dirname(output_path):
-            output_path = os.path.join("extracted_answers", output_path)
+            output_path = os.path.join("data_collection/extracted_answers", output_path)
     
     if os.path.isdir(input_path):
         # Process a directory of result files

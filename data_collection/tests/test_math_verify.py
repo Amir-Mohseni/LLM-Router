@@ -19,5 +19,9 @@ def test_verify_with_multiple_equations():
     assert verify_answers(parse("x + y = 3\ny = 1"), parse("x = 2\ny = 1")) == True
     assert verify_answers(parse("x + y = 3\ny = 1"), parse("x = 1\ny = 2")) == False
     
+def test_verify_with_mcq():
+    assert verify_answers(parse("\\boxed{G}"), parse("\\boxed{G}")) == True
+    assert verify_answers(parse("\\boxed{G}"), parse("\\boxed{B}")) == False
+    
 if __name__ == "__main__":
     pytest.main()

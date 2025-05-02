@@ -8,7 +8,7 @@ API_MODE = "local"                   # "local" (vLLM server) or "remote" (OpenAI
 API_BASE = "http://localhost:8000/v1"  # Base URL for API
 API_KEY_NAME = "VLLM_API_KEY"
 
-#MODEL_NAME = "gemma-3-27b-it"
+#MODEL_NAME = "gemini-2.0-flash"
 #API_MODE = "remote"
 #API_KEY_NAME = "GOOGLE_API_KEY"
 #API_BASE = "https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -32,7 +32,7 @@ NUM_PROBLEMS = 5  # Number of problems to test, or 'all' for entire dataset
 #
 K_RESPONSES = 5       # Number of responses per question
 TEMPERATURE = 0.7     # Sampling temperature for diversity
-MAX_TOKENS = 4096     # Maximum tokens per response
+MAX_TOKENS = 2048     # Maximum tokens per response
 
 # Advanced generation settings
 GENERATION_KWARGS = {
@@ -45,8 +45,8 @@ GENERATION_KWARGS = {
 # Processing settings
 #
 # Batch processing controls
-PROBLEM_BATCH_SIZE = 10  # Problems per batch for checkpointing
-MAX_CONCURRENT_REQUESTS = 10  # Maximum concurrent API requests
+PROBLEM_BATCH_SIZE = 100  # Problems per batch for checkpointing
+MAX_CONCURRENT_REQUESTS = 100  # Maximum concurrent API requests
 
 #
 # Output settings
