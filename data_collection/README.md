@@ -85,6 +85,15 @@ python -m data_collection.run_inference \
   --output_file google_results.jsonl
 ```
 
+### Parameter Compatibility
+
+The system automatically filters generation parameters based on the API mode:
+
+- **Remote Models**: Only the parameters supported by remote APIs (`temperature`, `max_tokens`, etc.)
+- **Local Models**: All vLLM parameters (`stop`, `temperature`, `max_tokens`, `repetition_penalty`, etc.)
+
+This handling happens automatically in `run_inference.py` without requiring manual parameter management.
+
 ### Configuration
 
 You can configure default values in `config.py`:
@@ -109,6 +118,7 @@ GENERATION_KWARGS = {
 VLLM_HOST = "0.0.0.0"
 VLLM_PORT = 8000
 VLLM_MAX_MODEL_LEN = 8192
+VLLM_TENSOR_PARALLEL_SIZE = 2  # Number of GPUs to use for tensor parallelism
 ```
 
 ### Advanced Usage
@@ -231,7 +241,7 @@ Before running the inference script in local mode, you can start the vLLM server
 #### Option 1: Direct command line
 ```bash
 # Start the vLLM server with your model
-vllm serve meta-llama/Llama-3.2-1B --model-impl transformers --max_model_len 8192
+vllm serve meta-llama/Llama-3.2-1B --model-impl transformers --max_model_len 8192 --tensor-parallel-size 2
 ```
 
 #### Option 2: Using the serve_llm.py script (recommended)
@@ -247,7 +257,34 @@ python -m data_collection.serve_llm --gpu-util 0.98
 
 # Start a server for Gemma models with necessary flags
 python -m data_collection.serve_llm --model "google/gemma-3-4b-it"
+
+# Use tensor parallelism to distribute model across multiple GPUs
+python -m data_collection.serve_llm --model "meta-llama/Llama-3-70b" --tensor-parallel-size 4
 ```
+
+#### Tensor Parallelism
+
+For large models that don't fit in a single GPU's memory, you can use tensor parallelism to distribute the model across multiple GPUs:
+
+```bash
+# Distribute a 70B model across 4 GPUs
+python -m data_collection.serve_llm --model "meta-llama/Llama-3-70b" --tensor-parallel-size 4
+```
+
+The tensor parallel size can be configured in three ways:
+1. In `config.py` by setting `VLLM_TENSOR_PARALLEL_SIZE`
+2. Via command line with `--tensor-parallel-size`
+3. In Docker Compose by setting the `VLLM_TENSOR_PARALLEL_SIZE` environment variable
+
+Note that tensor parallelism requires:
+- Multiple CUDA-capable GPUs with sufficient memory
+- NVIDIA GPU driver version 470.42.01 or higher
+- CUDA 11.4 or higher
+
+Performance benefits:
+- Load larger models than would fit on a single GPU
+- Improved inference speed for large models
+- Better utilization of multi-GPU systems
 
 The server will use the settings defined in `config.py` by default. You can modify these settings in the config file or override them with command-line arguments as shown above. The server always runs in the background and will display its Process ID (PID) so you can stop it later if needed.
 
@@ -288,7 +325,7 @@ python -m data_collection.run_inference
 python -m data_collection.run_inference --model "meta-llama/Llama-3.2-1B"
 
 # Remote API mode
-python -m data_collection.run_inference --api_mode remote --model "gpt-3.5-turbo-instruct"
+python -m data_collection.run_inference --api_mode remote --model "gemini-2.0-flash"
 
 # Customize batch size and responses per problem
 python -m data_collection.run_inference --batch_size 10 --k_responses 3
