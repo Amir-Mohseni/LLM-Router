@@ -10,6 +10,9 @@ def test_verify_normal():
     assert verify_answers(parse("2"), parse("x=3")) == False
     assert verify_answers(parse("x=2"), parse("m=3")) == False
     assert verify_answers(parse("x=2"), parse("m=2")) == True
+    
+    assert verify_answers(parse("\\boxed{Bob}"), parse("\\boxed{\\text{Bob}}")) == True
+    assert verify_answers(parse("\\boxed{Bob}"), parse("\\boxed{\\text{Alice}}")) == False
 
 def test_verify_basic():
     assert verify_answers(parse("1 + 1"), parse("2")) == True
