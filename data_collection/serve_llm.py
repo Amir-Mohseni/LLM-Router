@@ -6,6 +6,7 @@ import os
 import time
 import socket
 import requests
+import shutil
 from pathlib import Path
 
 from config import (
@@ -39,6 +40,36 @@ def wait_for_server(port=8000, timeout=180, check_interval=20):
     print(f"❌ Server didn't respond within {timeout} seconds.")
     return False
 
+def get_cuda_device_count():
+    """
+    Detect the number of available CUDA devices.
+    Returns 0 if CUDA is not available.
+    """
+    # Try to import torch if available
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return torch.cuda.device_count()
+    except ImportError:
+        pass
+    
+    # Fallback: use nvidia-smi to check
+    try:
+        # Check if nvidia-smi is available
+        if shutil.which("nvidia-smi") is not None:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=count", "--format=csv,noheader"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return int(result.stdout.strip())
+    except (subprocess.SubprocessError, ValueError):
+        pass
+    
+    # Default to 0 if no CUDA devices could be detected
+    return 0
+
 def serve_vllm(
     model_name=None, 
     max_model_len=None, 
@@ -59,17 +90,33 @@ def serve_vllm(
         enable_expert_parallel (bool): Enable expert parallelism for MoE models
         kv_cache_dtype (str): Data type for KV cache ("auto", "fp8", "fp16", etc.)
     """
+    # Count available CUDA devices
+    cuda_device_count = get_cuda_device_count()
+    
     # Use values from config if not provided
     model_name = model_name or MODEL_NAME
     max_model_len = max_model_len or VLLM_MAX_MODEL_LEN
-    tensor_parallel_size = tensor_parallel_size or VLLM_TENSOR_PARALLEL_SIZE
+    
+    # If tensor_parallel_size is not provided, use the value from config, 
+    # or all available CUDA devices if the config value is higher than available
+    if tensor_parallel_size is None:
+        if VLLM_TENSOR_PARALLEL_SIZE > cuda_device_count and cuda_device_count > 0:
+            tensor_parallel_size = cuda_device_count
+            print(f"Warning: Configured tensor_parallel_size ({VLLM_TENSOR_PARALLEL_SIZE}) exceeds available CUDA devices ({cuda_device_count}). Using {cuda_device_count} devices.")
+        else:
+            tensor_parallel_size = VLLM_TENSOR_PARALLEL_SIZE
+    else:
+        # If explicitly provided, warn if it exceeds available devices
+        if tensor_parallel_size > cuda_device_count and cuda_device_count > 0:
+            print(f"Warning: Requested tensor_parallel_size ({tensor_parallel_size}) exceeds available CUDA devices ({cuda_device_count}). This might cause errors.")
+    
+    # Ensure tensor_parallel_size is at least 1
+    if tensor_parallel_size <= 0:
+        tensor_parallel_size = 1
+    
+    # Use config values for other parameters if not provided
     enable_expert_parallel = enable_expert_parallel if enable_expert_parallel is not None else VLLM_ENABLE_EXPERT_PARALLEL
     kv_cache_dtype = kv_cache_dtype or VLLM_KV_CACHE_DTYPE
-    
-    # Check tensor parallel size
-    if tensor_parallel_size <= 0:
-        print(f"Warning: Invalid tensor parallel size {tensor_parallel_size}. Using default value of 1.")
-        tensor_parallel_size = 1
     
     cmd = [
         "vllm", "serve",
@@ -92,6 +139,7 @@ def serve_vllm(
     print(f"Model: {model_name}")
     print(f"Context length: {max_model_len}")
     print(f"GPU memory utilization: {gpu_memory_util * 100:.0f}%")
+    print(f"Available CUDA devices: {cuda_device_count}")
     print(f"Tensor parallelism: {tensor_parallel_size} GPU(s)")
     print(f"Expert parallelism: {'Enabled' if enable_expert_parallel else 'Disabled'}")
     print(f"KV cache data type: {kv_cache_dtype}")
@@ -120,6 +168,9 @@ def serve_vllm(
         sys.exit(1)
 
 def main():
+    # Get the number of CUDA devices
+    cuda_device_count = get_cuda_device_count()
+    
     parser = argparse.ArgumentParser(description="Start a vLLM server with specified configuration")
     parser.add_argument("--model", type=str, default=None, 
                         help=f"Model name or path (default: {MODEL_NAME})")
@@ -127,14 +178,28 @@ def main():
                         help=f"Maximum model context length (default: {VLLM_MAX_MODEL_LEN})")
     parser.add_argument("--gpu-util", type=float, default=0.95,
                         help="GPU memory utilization, from 0.0 to 1.0 (default: 0.95)")
-    parser.add_argument("--tensor-parallel-size", type=int, default=None,
-                        help=f"Number of GPUs to use for tensor parallelism (default: {VLLM_TENSOR_PARALLEL_SIZE})")
+    
+    # Add tensor parallelism help text based on CUDA availability
+    if cuda_device_count > 0:
+        tp_help = f"Number of GPUs to use for tensor parallelism (default: {VLLM_TENSOR_PARALLEL_SIZE}, max available: {cuda_device_count})"
+    else:
+        tp_help = f"Number of GPUs to use for tensor parallelism (default: {VLLM_TENSOR_PARALLEL_SIZE}, no CUDA devices detected)"
+    
+    parser.add_argument("--tensor-parallel-size", type=int, default=None, help=tp_help)
+    
     parser.add_argument("--enable-expert-parallel", action="store_true",
                         help=f"Enable expert parallelism for MoE models (default: {'Enabled' if VLLM_ENABLE_EXPERT_PARALLEL else 'Disabled'})")
     parser.add_argument("--kv-cache-dtype", type=str, default=None,
                         help=f"Data type for KV cache: auto, fp8, fp16, bf16, etc. (default: {VLLM_KV_CACHE_DTYPE})")
+    parser.add_argument("--use-all-gpus", action="store_true",
+                        help=f"Use all available GPUs for tensor parallelism (detected: {cuda_device_count})")
     
     args = parser.parse_args()
+    
+    # Override tensor_parallel_size if --use-all-gpus is specified
+    if args.use_all_gpus and cuda_device_count > 0:
+        args.tensor_parallel_size = cuda_device_count
+        print(f"Using all {cuda_device_count} available CUDA devices for tensor parallelism")
     
     serve_vllm(
         model_name=args.model,

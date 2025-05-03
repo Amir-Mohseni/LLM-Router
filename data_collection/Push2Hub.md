@@ -99,6 +99,11 @@ python -m data_collection.serve_llm \
   --enable-expert-parallel \
   --kv-cache-dtype fp8
 
+# Automatically use all available GPUs
+python -m data_collection.serve_llm \
+  --model meta-llama/Llama-3-70b \
+  --use-all-gpus
+
 # Run inference after server is ready
 python -m data_collection.run_inference \
   --api_mode local \
@@ -107,6 +112,10 @@ python -m data_collection.run_inference \
 ```
 
 ### Memory Optimization Options
+
+- **Automatic GPU Detection**: The system automatically detects available CUDA devices
+  - `--use-all-gpus`: Automatically use all available GPUs
+  - The script warns if you request more GPUs than available
 
 - **Tensor Parallelism**: Distributes model weight tensors across multiple GPUs
   - `--tensor-parallel-size 4`: Splits the model across 4 GPUs
