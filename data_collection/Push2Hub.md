@@ -87,6 +87,38 @@ The script processes the input data to make it more analysis-friendly. For each 
 
 This format makes it easy to analyze model performance question by question.
 
+## Advanced Options for Running Large Models
+
+When generating results with large models (like Mixtral or Llama-3-70B), you can use additional options to optimize inference:
+
+```bash
+# Run a large mixture-of-experts model with optimizations
+python -m data_collection.serve_llm \
+  --model mistralai/Mixtral-8x22B-v0.1 \
+  --tensor-parallel-size 4 \
+  --enable-expert-parallel \
+  --kv-cache-dtype fp8
+
+# Run inference after server is ready
+python -m data_collection.run_inference \
+  --api_mode local \
+  --model mistralai/Mixtral-8x22B-v0.1 \
+  --output_file mixtral_results.jsonl
+```
+
+### Memory Optimization Options
+
+- **Tensor Parallelism**: Distributes model weight tensors across multiple GPUs
+  - `--tensor-parallel-size 4`: Splits the model across 4 GPUs
+
+- **Expert Parallelism**: For mixture-of-experts (MoE) models, enables parallel execution of expert modules
+  - `--enable-expert-parallel`: Enables expert parallelism for models like Mixtral
+
+- **KV Cache Data Type**: Controls memory usage by setting key-value cache precision
+  - `--kv-cache-dtype fp8`: Uses FP8 format for KV cache to reduce memory usage (options: auto, fp8, fp16, bf16)
+
+These options allow you to run larger models that wouldn't otherwise fit on your hardware.
+
 ## Dataset on HuggingFace
 
 After uploading, you can access your dataset using the datasets library:

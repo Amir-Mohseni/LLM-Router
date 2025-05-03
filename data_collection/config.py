@@ -19,6 +19,8 @@ VLLM_PORT = 8000
 VLLM_MODEL_IMPL = "transformers"
 VLLM_MAX_MODEL_LEN = 8192
 VLLM_TENSOR_PARALLEL_SIZE = 1  # Number of GPUs to use for tensor parallelism (default: 1)
+VLLM_ENABLE_EXPERT_PARALLEL = False  # Enable expert parallelism for MoE models
+VLLM_KV_CACHE_DTYPE = "auto"  # Data type for KV cache: "auto", "fp8", "fp16", "bf16", etc.
 # Note: For gemma models, we need to disable multimodal preprocessing with --disable-mm-preprocessor-cache
 
 #
