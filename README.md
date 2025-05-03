@@ -142,6 +142,7 @@ A Gradio-based chat application that intelligently routes user queries to differ
 - **Conversation History**: Full chat history maintained throughout session
 - **User-Friendly Interface**: Clean, responsive Gradio UI
 - **Model Selection**: Choose models manually or let the router decide
+- **Polymorphic Architecture**: Support for both remote API models and local vLLM models
 
 ## 🤖 Supported Models
 
@@ -285,6 +286,9 @@ docker-compose exec llm-router collect your_output_filename.jsonl --api_mode loc
 # Start the vLLM server (separate container or terminal)
 docker-compose exec llm-router serve_vllm [model_name]
 
+# Start the vLLM server with tensor parallelism across multiple GPUs
+docker-compose exec llm-router serve_vllm meta-llama/Llama-3-70b --tensor-parallel-size 4
+
 # Extract and analyze answers
 docker-compose exec llm-router extract path/to/inference_results/your_file.jsonl
 ```
@@ -302,6 +306,24 @@ docker-compose up -d
 ```
 
 The vLLM server will be available at http://vllm-server:8000/v1 within the Docker network.
+
+### Tensor Parallelism Support
+
+For large models that don't fit in a single GPU's memory, the Docker configuration supports tensor parallelism to distribute model weights across multiple GPUs:
+
+1. **Automatic GPU Discovery**: The Docker Compose file is configured to use all available GPUs automatically
+2. **Adjustable Tensor Parallel Size**: Set the number of GPUs to use in the Docker Compose file or command line
+3. **High GPU Memory Utilization**: The configuration is optimized for maximum GPU memory usage
+
+To use tensor parallelism with Docker:
+
+```bash
+# Edit docker-compose.yml to uncomment the VLLM_TENSOR_PARALLEL_SIZE environment variable
+# and set it to the desired number of GPUs
+
+# Or specify it at runtime
+docker-compose exec vllm-server serve_vllm --model meta-llama/Llama-3-70b --tensor-parallel-size 4
+```
 
 ### Configuration
 

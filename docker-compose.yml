@@ -34,14 +34,14 @@ services:
     command: serve_vllm
     ports:
       - "8000:8000"
-    # Optional: Uncomment below to use GPU for vLLM
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    # GPU configuration for tensor parallelism
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all  # Use all available GPUs
+              capabilities: [gpu]
     volumes:
       - ./.env:/app/.env
       # Cache models to avoid re-downloading
@@ -49,6 +49,10 @@ services:
     environment:
       - PYTHONPATH=/app
       - HF_HOME=/app/models
+      # Number of GPUs to use for tensor parallelism can be set here or via command
+      # - VLLM_TENSOR_PARALLEL_SIZE=2
+    # Custom command to specify tensor parallelism - uncommment and adjust as needed
+    # command: serve_vllm --tensor-parallel-size 2
     networks:
       - llm-network
 

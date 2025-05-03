@@ -18,6 +18,7 @@ VLLM_HOST = "0.0.0.0"
 VLLM_PORT = 8000
 VLLM_MODEL_IMPL = "transformers"
 VLLM_MAX_MODEL_LEN = 8192
+VLLM_TENSOR_PARALLEL_SIZE = 1  # Number of GPUs to use for tensor parallelism (default: 1)
 # Note: For gemma models, we need to disable multimodal preprocessing with --disable-mm-preprocessor-cache
 
 #

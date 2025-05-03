@@ -8,7 +8,7 @@ import socket
 import requests
 from pathlib import Path
 
-from config import MODEL_NAME, VLLM_MAX_MODEL_LEN
+from config import MODEL_NAME, VLLM_MAX_MODEL_LEN, VLLM_TENSOR_PARALLEL_SIZE
 
 def is_port_in_use(port=8000):
     """Check if the specified port is in use"""
@@ -36,7 +36,7 @@ def wait_for_server(port=8000, timeout=180, check_interval=20):
     print(f"❌ Server didn't respond within {timeout} seconds.")
     return False
 
-def serve_vllm(model_name=None, max_model_len=None, gpu_memory_util=0.95):
+def serve_vllm(model_name=None, max_model_len=None, gpu_memory_util=0.95, tensor_parallel_size=None):
     """
     Starts a vLLM server with the specified configuration.
     Server always runs in the background.
@@ -45,10 +45,17 @@ def serve_vllm(model_name=None, max_model_len=None, gpu_memory_util=0.95):
         model_name (str): The name or path of the model to serve
         max_model_len (int): Maximum model context length
         gpu_memory_util (float): GPU memory utilization (0.0 to 1.0)
+        tensor_parallel_size (int): Number of GPUs to use for tensor parallelism
     """
     # Use values from config if not provided
     model_name = model_name or MODEL_NAME
     max_model_len = max_model_len or VLLM_MAX_MODEL_LEN
+    tensor_parallel_size = tensor_parallel_size or VLLM_TENSOR_PARALLEL_SIZE
+    
+    # Check tensor parallel size
+    if tensor_parallel_size <= 0:
+        print(f"Warning: Invalid tensor parallel size {tensor_parallel_size}. Using default value of 1.")
+        tensor_parallel_size = 1
     
     cmd = [
         "vllm", "serve",
@@ -59,12 +66,14 @@ def serve_vllm(model_name=None, max_model_len=None, gpu_memory_util=0.95):
         "--trust-remote-code",
         "--gpu-memory-utilization", str(gpu_memory_util),
         "--enforce-eager",  # Enforce eager execution mode for better token handling
+        "--tensor-parallel-size", str(tensor_parallel_size),  # Set tensor parallel size
     ]
     
     print(f"Starting vLLM server with command: {' '.join(cmd)}")
     print(f"Model: {model_name}")
     print(f"Context length: {max_model_len}")
     print(f"GPU memory utilization: {gpu_memory_util * 100:.0f}%")
+    print(f"Tensor parallelism: {tensor_parallel_size} GPU(s)")
     print(f"Using eager execution mode for better token handling")
     
     try:
@@ -97,13 +106,16 @@ def main():
                         help=f"Maximum model context length (default: {VLLM_MAX_MODEL_LEN})")
     parser.add_argument("--gpu-util", type=float, default=0.95,
                         help="GPU memory utilization, from 0.0 to 1.0 (default: 0.95)")
+    parser.add_argument("--tensor-parallel-size", type=int, default=None,
+                        help=f"Number of GPUs to use for tensor parallelism (default: {VLLM_TENSOR_PARALLEL_SIZE})")
     
     args = parser.parse_args()
     
     serve_vllm(
         model_name=args.model,
         max_model_len=args.max_model_len,
-        gpu_memory_util=args.gpu_util
+        gpu_memory_util=args.gpu_util,
+        tensor_parallel_size=args.tensor_parallel_size
     )
 
 if __name__ == "__main__":
