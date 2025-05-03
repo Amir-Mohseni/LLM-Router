@@ -15,20 +15,27 @@ def extract_answer(generated_text: str) -> str:
     if answer_match:
         answer_text = answer_match[-1].group(1).strip()
 
-        # Find all \boxed{...} instances and return the last full match including \boxed{}
-        boxed_match = list(re.finditer(r'(\\boxed\{.*?\})', answer_text))
+        # Find all \boxed{...} instances with proper handling of nested braces
+        boxed_pattern = r'\\boxed\{((?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*)\}'
+        boxed_match = list(re.finditer(boxed_pattern, answer_text))
         dollar_math_match = list(re.finditer(r'(\$.*?\$)', answer_text))
         if boxed_match:
-            return boxed_match[-1].group(1).strip()
+            # Return the full boxed expression with the braces
+            boxed_text = boxed_match[-1].group(0).strip()
+            return boxed_text
         elif dollar_math_match:
             return dollar_math_match[-1].group(1).strip()
         else:
             return answer_text
     else:
-        boxed_match = list(re.finditer(r'(\\boxed\{.*?\})', generated_text))
+        # Also update the pattern for finding boxed expressions outside of answer tags
+        boxed_pattern = r'\\boxed\{((?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*)\}'
+        boxed_match = list(re.finditer(boxed_pattern, generated_text))
         dollar_math_match = list(re.finditer(r'(\$.*?\$)', generated_text))
         if boxed_match:
-            return boxed_match[-1].group(1).strip()
+            # Return the full boxed expression with the braces
+            boxed_text = boxed_match[-1].group(0).strip()
+            return boxed_text
         elif dollar_math_match:
             return dollar_math_match[-1].group(1).strip()
         else:
