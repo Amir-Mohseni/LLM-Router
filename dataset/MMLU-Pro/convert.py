@@ -2,6 +2,7 @@ import json
 import hashlib
 import os
 
+
 def make_unique_id(record):
     if "unique_id" in record:
         raise ValueError("Record already contains 'unique_id'")
@@ -20,7 +21,6 @@ def normalize_record(record):
     except json.JSONDecodeError:
         full_response = ""
     
-    # Convert pred letter to index (e.g. "C" -> 2)
     pred_letter = record.get("pred", "").strip().upper()
     try:
         pred_index = ord(pred_letter) - ord("A")
@@ -67,4 +67,4 @@ with open(output_path, "w", encoding="utf-8") as out:
         json.dump(final_record, out, ensure_ascii=False)
         out.write("\n")
 
-print(f"✅ Converted to: {output_path}")
+print(f" Converted to: {output_path}")
