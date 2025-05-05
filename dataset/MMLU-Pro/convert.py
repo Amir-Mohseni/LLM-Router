@@ -2,11 +2,9 @@ import json
 import hashlib
 import os
 
-
 def make_unique_id(record):
     if "unique_id" in record:
         raise ValueError("Record already contains 'unique_id'")
-
     canonical = json.dumps(record, sort_keys=True, ensure_ascii=False)
     return hashlib.md5(canonical.encode("utf-8")).hexdigest()
 
@@ -15,12 +13,31 @@ def normalize_record(record):
     correct_index = record["answer_index"]
     answer_correct = choices[correct_index]
 
+    full_response = ""
+    model_outputs_raw = record.get("model_outputs")
+
     try:
-        model_output = json.loads(record.get("model_outputs", "{}"))
-        full_response = model_output.get("response", "")
-    except json.JSONDecodeError:
+        if isinstance(model_outputs_raw, dict):
+            full_response = model_outputs_raw.get("response", "")
+
+        elif isinstance(model_outputs_raw, str):
+            stripped = model_outputs_raw.strip()
+            if stripped == "":
+                full_response = ""
+            elif stripped.startswith("{") and stripped.endswith("}"):
+                # Likely a JSON string
+                parsed = json.loads(stripped)
+                full_response = parsed.get("response", "")
+            else:
+                # Plain text (already the response)
+                full_response = stripped
+        else:
+            full_response = ""
+    except Exception as e:
+        print(f"Error parsing model_outputs: {repr(model_outputs_raw)} → {e}")
         full_response = ""
-    
+
+    # Convert pred letter to actual choice value
     pred_letter = record.get("pred", "").strip().upper()
     try:
         pred_index = ord(pred_letter) - ord("A")
@@ -46,19 +63,20 @@ def normalize_record(record):
     }
 
 
-# Define file paths
-input_path = "/Users/Carrey/Desktop/UM/Year2/MMLU-Pro/eval_results/model_outputs_arx_3_5shots.json"
+
+
+# === File Paths ===
+input_path = "/Users/Carrey/Desktop/UM/Year2/Project_2.2/LLM-Router/dataset/MMLU-Pro/model_outputs_claude-3-5-haiku-20241022_5shots.json"
 output_path = input_path.replace(".json", ".jsonl")
 
-# Load input
+# === Load Data ===
 with open(input_path, "r", encoding="utf-8") as f:
     data = json.load(f)
 
-# Ensure list format
 if isinstance(data, dict):
     data = [data]
 
-# Process and write to JSONL
+# === Normalize and Write to JSONL ===
 with open(output_path, "w", encoding="utf-8") as out:
     for record in data:
         norm = normalize_record(record)
@@ -67,4 +85,4 @@ with open(output_path, "w", encoding="utf-8") as out:
         json.dump(final_record, out, ensure_ascii=False)
         out.write("\n")
 
-print(f" Converted to: {output_path}")
+print(f"Converted to: {output_path}")
