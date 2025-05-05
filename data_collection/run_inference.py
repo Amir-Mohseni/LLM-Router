@@ -4,7 +4,7 @@ import json
 import time
 import argparse
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple, Set
 from tqdm import tqdm
 from pathlib import Path
 import jinja2
@@ -322,34 +322,49 @@ async def main_async():
     
     # Track successful and failed questions
     successful_ids = set()
-    failed_ids = set()
+    fully_failed_ids = set()  # Questions where all responses failed
+    partial_failed_ids = {}   # Dict mapping question_id -> list of failed response indices
     
     if os.path.exists(output_file):
         print(f"Output file {output_file} already exists.")
         with open(output_file, 'r') as f:
-            for line in f:
+            # Load all existing results first to avoid file IO in the loop
+            existing_results = [json.loads(line) for line in f if line.strip()]
+            
+            for data in existing_results:
                 try:
-                    data = json.loads(line)
                     question_id = data.get("unique_id", "")
                     
                     if question_id:
-                        # Check if there were any valid responses
-                        all_failed = all(
-                            resp.get("full_response", "").startswith("Error generating response:") 
-                            for resp in data.get("responses", [])
-                        )
+                        # Check each response individually
+                        failed_indices = []
+                        for i, resp in enumerate(data.get("responses", [])):
+                            response_text = resp.get("full_response", "")
+                            if response_text.startswith("Error generating response:") or not response_text.strip():
+                                failed_indices.append(i)
                         
-                        if all_failed:
-                            # If all responses failed, mark for retry
-                            failed_ids.add(question_id)
-                        else:
-                            # If at least one response was successful, mark as done
+                        if len(failed_indices) == len(data.get("responses", [])):
+                            # All responses failed, mark for complete retry
+                            fully_failed_ids.add(question_id)
+                        elif failed_indices:
+                            # Some responses failed, mark for partial retry
+                            partial_failed_ids[question_id] = failed_indices
+                            # Still consider it successful overall since we have some good responses
                             successful_ids.add(question_id)
-                except json.JSONDecodeError:
+                        else:
+                            # All responses were good
+                            successful_ids.add(question_id)
+                except Exception as e:
+                    logger.error(f"Error parsing result: {e}")
                     continue
         
-        print(f"Found {len(successful_ids)} successfully processed questions")
-        print(f"Found {len(failed_ids)} questions with failed responses")
+        print(f"Found {len(successful_ids)} questions with at least one successful response")
+        print(f"Found {len(fully_failed_ids)} questions with all responses failed")
+        print(f"Found {len(partial_failed_ids)} questions with some responses failed")
+        
+        # Calculate total failed responses
+        total_failed_responses = len(fully_failed_ids) * args.k_responses + sum(len(indices) for indices in partial_failed_ids.values())
+        print(f"Total failed responses to retry: {total_failed_responses}")
     else:
         # Create the output directory if it doesn't exist
         output_dir = os.path.dirname(output_file)
@@ -358,21 +373,31 @@ async def main_async():
     
     # Determine which questions need processing
     indices_to_process = []
+    partial_retry_info = {}  # Map index -> (question_id, failed_indices)
+    
     for i, problem in enumerate(dataset):
         question_id = problem.get("unique_id", f"q{i}")
         
-        # Skip if already processed successfully
-        if question_id in successful_ids:
+        # Case 1: Completely new question (no successful responses)
+        if question_id not in successful_ids and question_id not in fully_failed_ids:
+            indices_to_process.append(i)
             continue
             
-        # If retry_failed is set, only process questions that failed before
-        if args.retry_failed and question_id not in failed_ids:
+        # Case 2: Fully failed question (all responses failed)
+        if question_id in fully_failed_ids:
+            if args.retry_failed:
+                indices_to_process.append(i)
             continue
             
-        # If we reach here, the question needs processing
-        indices_to_process.append(i)
-        
+        # Case 3: Partially failed question (some responses failed)
+        if question_id in partial_failed_ids and args.retry_failed:
+            indices_to_process.append(i)
+            # Store which response indices need to be regenerated
+            partial_retry_info[i] = (question_id, partial_failed_ids[question_id])
+            
     print(f"Identified {len(indices_to_process)} questions to process out of {len(dataset)} total.")
+    if partial_retry_info:
+        print(f"Of these, {len(partial_retry_info)} questions will have partial response regeneration.")
     
     # Process in batches for checkpointing
     batch_size = args.batch_size
@@ -390,6 +415,7 @@ async def main_async():
             # Prepare prompts for this batch
             batch_prompts = []
             batch_problems_info = []
+            batch_retry_info = []  # Track which prompts are partial retries
             
             for i in batch_indices:
                 # Fetch the problem using the index
@@ -423,6 +449,13 @@ async def main_async():
                     "category": problem.get("category", "")
                 })
                 
+                # Store which responses need to be regenerated (if this is a partial retry)
+                if i in partial_retry_info:
+                    batch_retry_info.append(partial_retry_info[i])
+                else:
+                    # Generate all responses for this problem
+                    batch_retry_info.append((question_id, list(range(args.k_responses))))
+                
                 batch_prompts.append(final_prompt)
             
             # Skip this batch if it somehow ended up empty (shouldn't happen with new logic)
@@ -435,6 +468,8 @@ async def main_async():
             batch_start_time = time.time()
             
             print(f"Generating responses for {len(batch_prompts)} prompts with up to {max_concurrent} concurrent requests...")
+            
+            # Use async processing for all cases
             batch_responses = await generate_responses_async(
                 llm=llm,
                 prompts=batch_prompts,
@@ -450,46 +485,129 @@ async def main_async():
             batch_results = []
             successful_responses_in_batch = 0
             
-            for problem_info, response_set in zip(batch_problems_info, batch_responses):
-                question_id = problem_info["unique_id"]
-                
-                # Check if all responses were errors
-                all_failed = all(resp["full_response"].startswith("Error generating response:") 
-                                for resp in response_set["responses"])
-                
-                # Track success/failure for next run
-                if not all_failed:
-                    successful_ids.add(question_id)
-                    successful_responses_in_batch += 1
-                    if question_id in failed_ids:
-                        failed_ids.remove(question_id)
-                else:
-                    failed_ids.add(question_id)
-                    logger.warning(f"All responses failed for question {question_id}, will retry in next run")
-                
-                batch_results.append({
-                    "unique_id": problem_info["unique_id"],
-                    "problem": problem_info["problem"],
-                    "is_mcq": problem_info["is_mcq"],
-                    "choices": problem_info["choices"],
-                    "choice_index_correct": problem_info["choice_index_correct"],
-                    "explanation_correct": problem_info["explanation_correct"],
-                    "answer_correct": problem_info["answer_correct"],
-                    "category": problem_info["category"],
-                    "responses": response_set["responses"]
-                })
+            # Load existing data for partial updates
+            existing_data_by_id = {}
+            if os.path.exists(output_file):
+                with open(output_file, 'r') as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        data = json.loads(line)
+                        q_id = data.get("unique_id", "")
+                        if q_id:
+                            existing_data_by_id[q_id] = data
             
-            # Only save the batch results if at least one response was successful
-            if successful_responses_in_batch > 0:
-                # Save this batch as a checkpoint
-                save_batch(batch_results, output_file)
-                print(f"Checkpoint saved with {successful_responses_in_batch} successful questions")
-            else:
-                logger.warning(f"No successful responses in this batch, skipping checkpoint save")
+            for idx, (problem_info, response_set, retry_info) in enumerate(zip(batch_problems_info, batch_responses, batch_retry_info)):
+                question_id = problem_info["unique_id"]
+                question_id, retry_indices = retry_info
                 
-            # Check for parameter errors in failures
-            if any("unexpected keyword" in resp["full_response"] for response_set in batch_responses for resp in response_set["responses"]):
-                logger.error("\nWARNING: Some errors indicate incompatible parameters. Check GENERATION_KWARGS in config.py for the selected API mode.")
+                # For partial retries, merge with existing responses
+                if question_id in existing_data_by_id and question_id in partial_failed_ids:
+                    existing_data = existing_data_by_id[question_id]
+                    existing_responses = existing_data.get("responses", [])
+                    
+                    # Replace only the failed responses
+                    merged_responses = list(existing_responses)  # Make a copy
+                    
+                    # Sanity check to ensure we have the right number of responses
+                    if len(response_set["responses"]) != len(retry_indices):
+                        logger.warning(f"Mismatch in response count for {question_id}: got {len(response_set['responses'])}, expected {len(retry_indices)}")
+                        # Just use what we have in order
+                        for i, new_resp in enumerate(response_set["responses"]):
+                            if i < len(retry_indices):
+                                idx_to_replace = retry_indices[i]
+                                if idx_to_replace < len(merged_responses):
+                                    merged_responses[idx_to_replace] = new_resp
+                    else:
+                        # Replace each failed response with the new one
+                        for new_resp, idx_to_replace in zip(response_set["responses"], retry_indices):
+                            if idx_to_replace < len(merged_responses):
+                                merged_responses[idx_to_replace] = new_resp
+                    
+                    # Check if all responses are now valid
+                    all_valid = all(
+                        not resp.get("full_response", "").startswith("Error generating response:") and 
+                        resp.get("full_response", "").strip()
+                        for resp in merged_responses
+                    )
+                    
+                    if all_valid:
+                        successful_ids.add(question_id)
+                        successful_responses_in_batch += 1
+                        partial_failed_ids.pop(question_id, None)  # Remove from partial failures
+                        if question_id in fully_failed_ids:
+                            fully_failed_ids.remove(question_id)
+                    
+                    # Create result with merged responses
+                    batch_results.append({
+                        "unique_id": problem_info["unique_id"],
+                        "problem": problem_info["problem"],
+                        "is_mcq": problem_info["is_mcq"],
+                        "choices": problem_info["choices"],
+                        "choice_index_correct": problem_info["choice_index_correct"],
+                        "explanation_correct": problem_info["explanation_correct"],
+                        "answer_correct": problem_info["answer_correct"],
+                        "category": problem_info["category"],
+                        "responses": merged_responses
+                    })
+                    
+                else:
+                    # This is a new question or a full retry - check all responses
+                    all_failed = all(resp["full_response"].startswith("Error generating response:") or not resp["full_response"].strip()
+                                    for resp in response_set["responses"])
+                    
+                    if not all_failed:
+                        successful_ids.add(question_id)
+                        successful_responses_in_batch += 1
+                        if question_id in fully_failed_ids:
+                            fully_failed_ids.remove(question_id)
+                    else:
+                        fully_failed_ids.add(question_id)
+                        if question_id in successful_ids:
+                            successful_ids.remove(question_id)
+                        logger.warning(f"All responses failed or were empty for question {question_id}, will retry in next run")
+                    
+                    # Create standard result
+                    batch_results.append({
+                        "unique_id": problem_info["unique_id"],
+                        "problem": problem_info["problem"],
+                        "is_mcq": problem_info["is_mcq"],
+                        "choices": problem_info["choices"],
+                        "choice_index_correct": problem_info["choice_index_correct"],
+                        "explanation_correct": problem_info["explanation_correct"],
+                        "answer_correct": problem_info["answer_correct"],
+                        "category": problem_info["category"],
+                        "responses": response_set["responses"]
+                    })
+            
+            # Create a temporary file with updated results
+            temp_output_file = f"{output_file}.temp"
+            updated_ids = {result["unique_id"] for result in batch_results}
+            
+            # First copy all non-updated entries from original file
+            if os.path.exists(output_file):
+                with open(output_file, 'r') as infile, open(temp_output_file, 'w') as outfile:
+                    for line in infile:
+                        if not line.strip():
+                            continue
+                        data = json.loads(line)
+                        q_id = data.get("unique_id", "")
+                        # Skip entries that we're updating
+                        if q_id not in updated_ids:
+                            outfile.write(line)
+            else:
+                # Create an empty temp file if original doesn't exist
+                open(temp_output_file, 'w').close()
+            
+            # Then append our new batch results
+            with open(temp_output_file, 'a') as f:
+                for result in batch_results:
+                    f.write(json.dumps(result) + "\n")
+            
+            # Replace the original file with our updated version
+            os.replace(temp_output_file, output_file)
+            
+            print(f"Checkpoint saved with {successful_responses_in_batch} successful questions")
             
             # Ask if user wants to continue or abort
             if successful_responses_in_batch == 0:
@@ -509,15 +627,18 @@ async def main_async():
             
             print(f"Batch complete, {batch_end}/{len(indices_to_process)} problems processed")
             print(f"Success status: {len(successful_ids)} questions successfully processed")
-            print(f"Failure status: {len(failed_ids)} questions with failed responses")
+            print(f"Failure status: {len(fully_failed_ids)} questions with failed responses")
     
     # Print summary
     print(f"\nInference completed:")
     print(f"Results saved to {output_file}")
     print(f"Successfully processed {len(successful_ids)} questions")
-    print(f"Failed to process {len(failed_ids)} questions")
+    print(f"Failed to process {len(fully_failed_ids)} questions completely")
+    if partial_failed_ids:
+        print(f"Partially failed: {len(partial_failed_ids)} questions with some failed responses")
     
-    if failed_ids:
+    retry_needed = bool(fully_failed_ids or partial_failed_ids)
+    if retry_needed:
         print("\nTo retry failed questions, run:")
         print(f"python -m data_collection.run_inference --retry_failed --output_file {os.path.basename(output_file)}")
     
