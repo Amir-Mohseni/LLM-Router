@@ -61,7 +61,12 @@ class RouteLLMClassifier:
         )
         return response
 
-router = RouteLLMClassifier("deepseek-ai/DeepSeek-R1-Distill-Qwen-32B","meta-llama/Llama-3.2-1B-Instruct")
-#Test
-router.classify("How are you today?")
+router = RouteLLMClassifier("gpt-4","gpt-3.5-turbo")
+#Test:
+
+#Easy
+print(router.classify("Can you explain the concept of quantum computing and its potential impact on industries like healthcare and finance?"))
+#Hard
+print(router.classify("Can you solve the integral of the function 𝑓 ( 𝑥 ) = 𝑥 3 sin ⁡ ( 𝑥 ) f(x)=x 3 sin(x) from 0 to 𝜋 π and explain the steps involved?"))
+
     
