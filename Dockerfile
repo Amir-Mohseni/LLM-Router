@@ -6,7 +6,8 @@ WORKDIR /app
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    TOKENIZERS_PARALLELISM=false
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -21,21 +22,22 @@ COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -U pip setuptools wheel && \
-    pip install --no-cache-dir -r requirements.txt && \
-    # Add pytest for running tests
-    pip install --no-cache-dir pytest
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy the project files
 COPY . .
 
-# Make scripts executable
-RUN chmod +x scripts/*.sh
+# Make scripts executable (if they exist)
+RUN if [ -d "scripts" ]; then chmod +x scripts/*.sh; fi
 
-# Create directories
+# Create directories for data persistence
 RUN mkdir -p data_collection/inference_results extracted_answers
 
-# Copy example env file
-COPY .env.example .env
+# Copy example env file if it exists
+RUN if [ -f ".env.example" ]; then cp .env.example .env; fi
 
-# Default command (interactive shell if no arguments provided)
-CMD ["bash"] 
+# Expose the port Gradio will run on
+EXPOSE 7860
+
+# Default command to run the app
+CMD ["python", "main.py"] 

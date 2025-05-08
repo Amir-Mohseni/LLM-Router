@@ -239,102 +239,48 @@ The Gradio interface can be customized in `app.py` - refer to the [Gradio docume
 
 The LLM Router can be run in a Docker container for easy deployment and reproducibility. This approach ensures all dependencies are properly installed and isolated from your system.
 
-### Building and Running with Docker
+### Running with Docker
 
-1. **Prerequisites:**
-   - [Docker](https://docs.docker.com/get-docker/) installed on your system
-   - [Docker Compose](https://docs.docker.com/compose/install/) (optional, for easier management)
+The application includes a Dockerfile to easily containerize and run the LLM Router.
 
-2. **Simple Docker Usage:**
+1. Build the Docker image:
    ```bash
-   # Build the Docker image
    docker build -t llm-router .
-   
-   # Run the container with an interactive shell
-   docker run -it --rm llm-router
    ```
 
-3. **Using Docker Compose (Recommended):**
+2. Run the container:
    ```bash
-   # Start the container
-   docker-compose up -d
-   
-   # Access the container shell
-   docker-compose exec llm-router bash
-   
-   # Stop the container when finished
-   docker-compose down
+   docker run -p 7860:7860 -e HF_TOKEN=your_huggingface_token_here llm-router
    ```
 
-### Container Commands
+3. Access the application in your browser at http://localhost:7860
 
-The Docker container includes shortcut commands for common operations:
+### Environment Variables
 
-```bash
-# Run the standard tests
-docker-compose exec llm-router test
+- `HF_TOKEN`: Your Hugging Face API token (required)
+- You can provide other environment variables using the `-e` flag with `docker run`
 
-# Run the full dataset validation
-docker-compose exec llm-router validate
+### Using Docker Compose
 
-# Run data collection with remote models (default)
-docker-compose exec llm-router collect your_output_filename.jsonl
-
-# Run data collection with local models
-docker-compose exec llm-router collect your_output_filename.jsonl --api_mode local
-
-# Start the vLLM server (separate container or terminal)
-docker-compose exec llm-router serve_vllm [model_name]
-
-# Start the vLLM server with tensor parallelism across multiple GPUs
-docker-compose exec llm-router serve_vllm meta-llama/Llama-3-70b --tensor-parallel-size 4
-
-# Extract and analyze answers
-docker-compose exec llm-router extract path/to/inference_results/your_file.jsonl
-```
-
-### Multi-Container Setup
-
-The Docker Compose configuration includes two services:
-
-1. **llm-router**: Main service for running inference and analysis
-2. **vllm-server**: Service for running the local vLLM server
-
-To run both services:
-```bash
-docker-compose up -d
-```
-
-The vLLM server will be available at http://vllm-server:8000/v1 within the Docker network.
-
-### Tensor Parallelism Support
-
-For large models that don't fit in a single GPU's memory, the Docker configuration supports tensor parallelism to distribute model weights across multiple GPUs:
-
-1. **Automatic GPU Discovery**: The Docker Compose file is configured to use all available GPUs automatically
-2. **Adjustable Tensor Parallel Size**: Set the number of GPUs to use in the Docker Compose file or command line
-3. **High GPU Memory Utilization**: The configuration is optimized for maximum GPU memory usage
-
-To use tensor parallelism with Docker:
+For more advanced setups including GPU support, use the provided docker-compose.yml:
 
 ```bash
-# Edit docker-compose.yml to uncomment the VLLM_TENSOR_PARALLEL_SIZE environment variable
-# and set it to the desired number of GPUs
-
-# Or specify it at runtime
-docker-compose exec vllm-server serve_vllm --model meta-llama/Llama-3-70b --tensor-parallel-size 4
+docker-compose up llm-router
 ```
 
-### Configuration
+This will start the application with the configuration specified in the docker-compose.yml file.
 
-To configure API keys and other settings:
-1. Create a `.env` file in the project root with your API keys:
-   ```
-   VLLM_API_KEY=your_key_here
-   OPENAI_API_KEY=your_key_here
-   ```
+### Persistent Data
 
-2. Docker Compose will automatically mount this file into the container.
+To persist data between container runs, you can mount volumes:
+
+```bash
+docker run -p 7860:7860 \
+  -e HF_TOKEN=your_huggingface_token_here \
+  -v $(pwd)/data_collection:/app/data_collection \
+  -v $(pwd)/extracted_answers:/app/extracted_answers \
+  llm-router
+```
 
 ## 🧪 Testing
 
