@@ -502,27 +502,50 @@ async def main_async():
                 question_id, retry_indices = retry_info
                 
                 # For partial retries, merge with existing responses
-                if question_id in existing_data_by_id and question_id in partial_failed_ids:
+                if question_id in existing_data_by_id:
                     existing_data = existing_data_by_id[question_id]
                     existing_responses = existing_data.get("responses", [])
                     
-                    # Replace only the failed responses
-                    merged_responses = list(existing_responses)  # Make a copy
+                    # Count how many acceptable responses we already have
+                    acceptable_responses = []
+                    failed_indices = []
+                    for i, resp in enumerate(existing_responses):
+                        response_text = resp.get("full_response", "")
+                        if not response_text.startswith("Error generating response:") and response_text.strip():
+                            acceptable_responses.append(resp)
+                        else:
+                            failed_indices.append(i)
                     
-                    # Sanity check to ensure we have the right number of responses
-                    if len(response_set["responses"]) != len(retry_indices):
-                        logger.warning(f"Mismatch in response count for {question_id}: got {len(response_set['responses'])}, expected {len(retry_indices)}")
-                        # Just use what we have in order
+                    # Determine how many new responses we need
+                    # If we have enough acceptable responses (>= k), we just replace failed ones
+                    # If we don't have enough, we need to generate at least k - len(acceptable) new ones
+                    required_new_responses = max(len(failed_indices), args.k_responses - len(acceptable_responses))
+                    
+                    # For questions that were fully failed, make sure we generate at least k responses
+                    # or the original number, whichever is greater
+                    if question_id in fully_failed_ids:
+                        required_new_responses = max(required_new_responses, args.k_responses, len(existing_responses))
+                    
+                    # If we're doing a retry but didn't generate enough responses, log a warning
+                    if len(response_set["responses"]) < required_new_responses:
+                        logger.warning(f"Generated fewer responses than needed for {question_id}: got {len(response_set['responses'])}, need {required_new_responses}")
+                    
+                    # Decide how to merge responses:
+                    # 1. If only some responses failed, replace just those (preserving original array size)
+                    # 2. If we don't have enough responses overall, add the new ones to existing good ones
+                    if len(acceptable_responses) >= args.k_responses:
+                        # We have enough good responses, just replace failed ones
+                        merged_responses = list(existing_responses)  # Make a copy
+                        
+                        # Replace failed responses with new ones, up to what we have
                         for i, new_resp in enumerate(response_set["responses"]):
-                            if i < len(retry_indices):
-                                idx_to_replace = retry_indices[i]
-                                if idx_to_replace < len(merged_responses):
-                                    merged_responses[idx_to_replace] = new_resp
+                            if i < len(failed_indices) and failed_indices[i] < len(merged_responses):
+                                merged_responses[failed_indices[i]] = new_resp
                     else:
-                        # Replace each failed response with the new one
-                        for new_resp, idx_to_replace in zip(response_set["responses"], retry_indices):
-                            if idx_to_replace < len(merged_responses):
-                                merged_responses[idx_to_replace] = new_resp
+                        # We don't have enough good responses, keep all good ones and add new ones
+                        merged_responses = acceptable_responses
+                        # Add all new responses
+                        merged_responses.extend(response_set["responses"])
                     
                     # Check if all responses are now valid
                     all_valid = all(
@@ -534,9 +557,26 @@ async def main_async():
                     if all_valid:
                         successful_ids.add(question_id)
                         successful_responses_in_batch += 1
-                        partial_failed_ids.pop(question_id, None)  # Remove from partial failures
                         if question_id in fully_failed_ids:
                             fully_failed_ids.remove(question_id)
+                        if question_id in partial_failed_ids:
+                            partial_failed_ids.pop(question_id, None)  # Remove from partial failures
+                    else:
+                        # Some responses still failed, update partial_failed_ids
+                        new_failed_indices = []
+                        for i, resp in enumerate(merged_responses):
+                            response_text = resp.get("full_response", "")
+                            if response_text.startswith("Error generating response:") or not response_text.strip():
+                                new_failed_indices.append(i)
+                        
+                        if len(new_failed_indices) == len(merged_responses):
+                            fully_failed_ids.add(question_id)
+                            if question_id in successful_ids:
+                                successful_ids.remove(question_id)
+                            logger.warning(f"All responses still failed for question {question_id}")
+                        else:
+                            partial_failed_ids[question_id] = new_failed_indices
+                            successful_ids.add(question_id)  # Still consider it successful overall
                     
                     # Create result with merged responses
                     batch_results.append({
@@ -550,9 +590,8 @@ async def main_async():
                         "category": problem_info["category"],
                         "responses": merged_responses
                     })
-                    
                 else:
-                    # This is a new question or a full retry - check all responses
+                    # This is a new question - check all responses
                     all_failed = all(resp["full_response"].startswith("Error generating response:") or not resp["full_response"].strip()
                                     for resp in response_set["responses"])
                     
