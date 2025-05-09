@@ -34,7 +34,11 @@ RUN if [ -d "scripts" ]; then chmod +x scripts/*.sh; fi
 RUN mkdir -p data_collection/inference_results extracted_answers
 
 # Copy example env file if it exists
-RUN if [ -f ".env.example" ]; then cp .env.example .env; fi
+# Copy .env.example if .env doesn't exist
+RUN if [ ! -f ".env" ] && [ -f ".env.example" ]; then cp .env.example .env; fi
+
+# Replace HF_TOKEN in .env with the OpenShift secret if provided
+RUN if [ ! -z "$HF_TOKEN" ]; then sed -i "s/^HF_TOKEN=.*/HF_TOKEN=$HF_TOKEN/" .env; fi
 
 # Expose the port Gradio will run on
 EXPOSE 7860
