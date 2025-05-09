@@ -181,19 +181,6 @@ def main():
     import sys
     original_argv = sys.argv.copy()
     
-    # Use a custom dataset name and split that points to our temp file
-    custom_dataset_name = "custom_failed_problems"
-    custom_split = "filtered"
-    
-    # Create a temporary config module to override dataset loading
-    temp_config_path = os.path.join(temp_dataset_dir, "temp_config.py")
-    with open(temp_config_path, 'w') as f:
-        f.write(f"""
-# Temporary config file for selective inference
-DATASET_NAME = "{custom_dataset_name}"
-DATASET_SPLIT = "{custom_split}"
-""")
-    
     # Build new arguments for run_inference using config-based defaults
     new_argv = [
         "run_inference.py",  # Script name
@@ -226,13 +213,12 @@ DATASET_SPLIT = "{custom_split}"
     logger.info(f"Filtered dataset contains {len(failed_problems)} problems")
     logger.info(f"Running inference on filtered dataset with command arguments: {' '.join(new_argv)}")
     
-    # Create a more direct solution by patching the dataset.py module
-    import dataset
-    original_load_math_dataset = dataset.load_math_dataset
-    
-    def patched_load_math_dataset(dataset_name=None, split=None, num_problems=None):
-        """Patched version that loads our filtered dataset instead"""
-        logger.info(f"Loading filtered dataset from {temp_dataset_path}")
+    # Create a completely direct approach by creating our own version of load_math_dataset
+    # This ensures we completely bypass the datasets library
+    def load_math_dataset_direct(dataset_name=None, split=None, num_problems=None):
+        """Direct implementation that loads our filtered dataset"""
+        logger.info(f"[DIRECT LOADER] Loading filtered dataset from {temp_dataset_path}")
+        logger.info(f"[DIRECT LOADER] Ignoring requested dataset: {dataset_name}, split: {split}")
         
         # Load the JSONL file
         problems = []
@@ -241,63 +227,52 @@ DATASET_SPLIT = "{custom_split}"
                 if line.strip():
                     problems.append(json.loads(line))
         
-        logger.info(f"Loaded {len(problems)} problems from filtered dataset (ignoring dataset_name={dataset_name}, split={split}, num_problems={num_problems})")
+        # If num_problems is specified and not 'all', limit the number of problems
+        if num_problems is not None and num_problems != 'all':
+            try:
+                num_to_use = int(num_problems)
+                problems = problems[:num_to_use]
+            except ValueError:
+                logger.warning(f"Invalid num_problems value: {num_problems}, using all problems")
+        
+        logger.info(f"[DIRECT LOADER] Loaded {len(problems)} problems from filtered dataset")
         return problems
-    
-    # Apply the monkey patch
-    dataset.load_math_dataset = patched_load_math_dataset
-    
-    # Also, create a secondary patch for the Dataset class if used
-    try:
-        from datasets import load_dataset
-        original_load_dataset = load_dataset
-        
-        def patched_load_dataset(path, name=None, split=None, *args, **kwargs):
-            """Patched version that returns our filtered dataset instead"""
-            if (path == custom_dataset_name or name == custom_dataset_name) and split == custom_split:
-                logger.info(f"Intercepting request for dataset {custom_dataset_name}/{custom_split}")
-                problems = []
-                with open(temp_dataset_path, 'r') as f:
-                    for line in f:
-                        if line.strip():
-                            problems.append(json.loads(line))
-                
-                # Create a simple dataset-like object
-                class SimpleDataset:
-                    def __getitem__(self, idx):
-                        return problems[idx]
-                    
-                    def __len__(self):
-                        return len(problems)
-                
-                logger.info(f"Returning SimpleDataset with {len(problems)} problems")
-                return SimpleDataset()
-            return original_load_dataset(path, name, split, *args, **kwargs)
-        
-        # Apply the monkey patch for load_dataset
-        import datasets
-        datasets.load_dataset = patched_load_dataset
-    except ImportError:
-        # If datasets module is not used, this won't matter
-        pass
     
     try:
         # Run inference on the filtered dataset
         logger.info(f"Running inference with model {args.model} on {len(failed_problems)} failed problems")
         
+        # First, replace the dataset loading function in the dataset module
+        import dataset
+        original_load_math_dataset = dataset.load_math_dataset
+        dataset.load_math_dataset = load_math_dataset_direct
+        
+        # Also replace any imported version in run_inference
+        import run_inference
+        if hasattr(run_inference, 'load_math_dataset'):
+            original_run_inference_load = run_inference.load_math_dataset
+            run_inference.load_math_dataset = load_math_dataset_direct
+        
+        # Also handle if they use a from-import style
+        import sys
+        for module_name, module in list(sys.modules.items()):
+            if module_name.startswith('data_collection.') or module_name in ('dataset', 'run_inference'):
+                if hasattr(module, 'load_math_dataset'):
+                    setattr(module, 'load_math_dataset', load_math_dataset_direct)
+        
         # Force the system to recognize our patches by ensuring module cache is clear
         import importlib
         importlib.reload(dataset)
+        importlib.reload(run_inference)
         
+        # Now run the main function
         run_inference_main()
     finally:
         # Restore original state
         sys.argv = original_argv
         dataset.load_math_dataset = original_load_math_dataset
-        try:
-            datasets.load_dataset = original_load_dataset
-        except:
-            pass
+        if hasattr(run_inference, 'load_math_dataset'):
+            run_inference.load_math_dataset = original_run_inference_load
         
         # Clean up temporary dataset if desired
         # import shutil
