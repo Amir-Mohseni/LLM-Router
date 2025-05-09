@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Import config before other imports to ensure it's fully loaded
-from data_collection.config import (
+from config import (
     DATASET_NAME, DATASET_SPLIT,
     NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR,
     PROBLEM_BATCH_SIZE, API_MODE, API_BASE, API_KEY_NAME,
@@ -20,10 +20,11 @@ from data_collection.config import (
     MAX_CONCURRENT_REQUESTS
 )
 
-from data_collection.run_inference import main as run_inference_main
+from run_inference import main as run_inference_main
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run selective inference on problems a weaker model failed on")
+    
     parser.add_argument("--weak_model_results", type=str, required=True,
                         help="Path to the processed results from the weaker model (JSONL)")
     parser.add_argument("--failure_threshold", type=float, default=0.5,
@@ -54,13 +55,14 @@ def parse_args():
                         help=f"Number of problems per batch for checkpointing (default: {PROBLEM_BATCH_SIZE})")
     return parser.parse_args()
 
-def filter_failed_problems(results_file, failure_threshold=0.5):
+def filter_failed_problems(results_file, failure_threshold=0.5, k_responses=K_RESPONSES):
     """
     Extract problems that the weaker model failed on more than failure_threshold percent of the time.
     
     Args:
         results_file: Path to the processed results JSONL file
         failure_threshold: Minimum failure rate to include a problem (0.5 = 50%)
+        k_responses: Maximum number of responses to consider per problem
         
     Returns:
         List of failed problem dictionaries with their unique IDs
@@ -86,22 +88,30 @@ def filter_failed_problems(results_file, failure_threshold=0.5):
                     logger.warning(f"Found problem without unique_id, skipping")
                     continue
                 
-                # Extract correctness statistics
-                correct_count = problem_data.get("correct_count", 0)
-                total_count = problem_data.get("total_count", 0)
-                
-                # Skip problems without correctness data
-                if total_count == 0:
-                    logger.warning(f"Problem {problem_id} has no correctness data, skipping")
+                # Check the responses for correctness
+                responses = problem_data.get("responses", [])
+                if not responses:
+                    logger.warning(f"Problem {problem_id} has no responses, skipping")
                     continue
                 
+                # If there are more than k responses, keep only the top k
+                # Sort by correctness (correct first), and take the first k
+                if len(responses) > k_responses:
+                    logger.info(f"Problem {problem_id} has {len(responses)} responses, limiting to top {k_responses}")
+                    # Sort responses with correct ones first
+                    sorted_responses = sorted(responses, key=lambda r: r.get("is_correct", False), reverse=True)
+                    responses = sorted_responses[:k_responses]
+                
+                # Count total responses and correct responses
+                total_count = len(responses)
+                correct_count = sum(1 for resp in responses if resp.get("is_correct", False))
+                
                 # Calculate failure rate
-                failure_rate = 1.0 - (correct_count / total_count)
+                failure_rate = 1.0 - (correct_count / total_count) if total_count > 0 else 0
                 
                 # If failure rate exceeds threshold, add to list
                 if failure_rate > failure_threshold:
-                    # Create a simplified problem dictionary with essential fields
-                    failed_problem = {
+                    failed_problems.append({
                         "unique_id": problem_id,
                         "problem": problem_data.get("problem", ""),
                         "is_mcq": problem_data.get("is_mcq", False),
@@ -111,8 +121,7 @@ def filter_failed_problems(results_file, failure_threshold=0.5):
                         "answer_correct": problem_data.get("answer_correct", ""),
                         "category": problem_data.get("category", ""),
                         "failure_rate": failure_rate
-                    }
-                    failed_problems.append(failed_problem)
+                    })
                     
             except json.JSONDecodeError:
                 logger.error(f"Error parsing JSON line: {line[:100]}...")
@@ -120,6 +129,20 @@ def filter_failed_problems(results_file, failure_threshold=0.5):
                 
     logger.info(f"Found {len(failed_problems)} problems with failure rate > {failure_threshold*100}%")
     return failed_problems
+
+def create_failed_problem_dict(problem_data, failure_rate):
+    """Helper function to create a standard problem dictionary for failed problems"""
+    return {
+        "unique_id": problem_data.get("unique_id", ""),
+        "problem": problem_data.get("problem", ""),
+        "is_mcq": problem_data.get("is_mcq", False),
+        "choices": problem_data.get("choices", None),
+        "choice_index_correct": problem_data.get("choice_index_correct", None),
+        "explanation_correct": problem_data.get("explanation_correct", ""),
+        "answer_correct": problem_data.get("answer_correct", ""),
+        "category": problem_data.get("category", ""),
+        "failure_rate": failure_rate
+    }
 
 def create_filtered_dataset(failed_problems, output_path):
     """
@@ -148,7 +171,12 @@ def main():
     
     # Extract problems the weaker model failed on
     logger.info(f"Analyzing results from weaker model: {args.weak_model_results}")
-    failed_problems = filter_failed_problems(args.weak_model_results, args.failure_threshold)
+    
+    failed_problems = filter_failed_problems(
+        args.weak_model_results, 
+        args.failure_threshold,
+        args.k_responses
+    )
     
     if not failed_problems:
         logger.error("No failed problems found. Exiting.")
