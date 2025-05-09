@@ -5,7 +5,6 @@ import argparse
 from pathlib import Path
 import logging
 from collections import defaultdict
-import dataset
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -22,6 +21,8 @@ from config import (
 )
 
 from run_inference import main as run_inference_main
+
+from dataset import load_math_dataset
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run selective inference on problems a weaker model failed on")
@@ -131,20 +132,6 @@ def filter_failed_problems(results_file, failure_threshold=0.5, k_responses=K_RE
     logger.info(f"Found {len(failed_problems)} problems with failure rate > {failure_threshold*100}%")
     return failed_problems
 
-def create_failed_problem_dict(problem_data, failure_rate):
-    """Helper function to create a standard problem dictionary for failed problems"""
-    return {
-        "unique_id": problem_data.get("unique_id", ""),
-        "problem": problem_data.get("problem", ""),
-        "is_mcq": problem_data.get("is_mcq", False),
-        "choices": problem_data.get("choices", None),
-        "choice_index_correct": problem_data.get("choice_index_correct", None),
-        "explanation_correct": problem_data.get("explanation_correct", ""),
-        "answer_correct": problem_data.get("answer_correct", ""),
-        "category": problem_data.get("category", ""),
-        "failure_rate": failure_rate
-    }
-
 def create_filtered_dataset(failed_problems, output_path):
     """
     Create a temporary dataset file with just the failed problems
@@ -220,8 +207,12 @@ def main():
     # Override sys.argv temporarily
     sys.argv = new_argv
     
+    # Print debug information
+    logger.info(f"Filtered dataset contains {len(failed_problems)} problems")
+    logger.info(f"Running inference on filtered dataset with command arguments: {' '.join(new_argv)}")
+    
     # Import module for dataset patching
-    original_load_math_dataset = dataset.load_math_dataset
+    original_load_math_dataset = load_math_dataset
     
     def patched_load_math_dataset(dataset_name=None, split=None, num_problems=None):
         """Patched version that loads our filtered dataset instead"""
@@ -234,10 +225,11 @@ def main():
                 if line.strip():
                     problems.append(json.loads(line))
         
-        logger.info(f"Loaded {len(problems)} problems from filtered dataset")
+        logger.info(f"Loaded {len(problems)} problems from filtered dataset (ignoring dataset_name={dataset_name}, split={split}, num_problems={num_problems})")
         return problems
     
     # Apply the monkey patch
+    import dataset
     dataset.load_math_dataset = patched_load_math_dataset
     
     try:
