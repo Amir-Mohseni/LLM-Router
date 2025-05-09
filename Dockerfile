@@ -27,11 +27,9 @@ RUN pip install --no-cache-dir -U pip setuptools wheel && \
 # Copy the project files
 COPY . .
 
-# Make scripts executable (if they exist)
-RUN if [ -d "scripts" ]; then chmod +x scripts/*.sh; fi
+RUN test -n "$HF_TOKEN" || (echo "HF_TOKEN is not set!" && exit 1)
 
-# Create directories for data persistence
-RUN mkdir -p data_collection/inference_results extracted_answers
+RUN huggingface-cli login --token "$HF_TOKEN"
 
 # Expose the port Gradio will run on
 EXPOSE 7860
