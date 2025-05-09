@@ -2,6 +2,7 @@
 import os
 import json
 import argparse
+import subprocess
 from pathlib import Path
 import logging
 from collections import defaultdict
@@ -19,8 +20,6 @@ from config import (
     MODEL_NAME, GENERATION_KWARGS,
     MAX_CONCURRENT_REQUESTS
 )
-
-from run_inference import main as run_inference_main
 
 from dataset import load_math_dataset
 
@@ -154,6 +153,278 @@ def create_filtered_dataset(failed_problems, output_path):
     logger.info(f"Created filtered dataset with {len(failed_problems)} problems at {output_path}")
     return output_path
 
+def run_inference_direct(args, problems, output_file):
+    """
+    Run inference directly on the problems without using the run_inference.py script
+    """
+    logger.info(f"Running direct inference with model {args.model} on {len(problems)} problems")
+    
+    # Import necessary modules
+    import asyncio
+    from LLM import create_llm, REMOTE_API_PARAMS, LOCAL_VLLM_PARAMS
+    from prompts import (
+        MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT, 
+        env as jinja_env
+    )
+    from tqdm import tqdm
+    
+    # Define helper functions from run_inference.py
+    def format_mcq_prompt(question, choices):
+        formatted_prompt = jinja_env.from_string(MCQ_PROMPT_TEMPLATE).render(
+            question=question,
+            choices=choices
+        )
+        return formatted_prompt
+
+    def format_prompt(question, choices=None):
+        if choices:
+            return format_mcq_prompt(question, choices)
+        else:
+            return jinja_env.from_string(MATH_PROMPT).render(question=question)
+    
+    def format_choices(choices):
+        option_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        return [f"{option_letters[i]}. {choice}" for i, choice in enumerate(choices)]
+    
+    # Get filtered kwargs based on API mode
+    def get_filtered_kwargs(api_mode):
+        if api_mode.lower() == "remote":
+            return {k: v for k, v in GENERATION_KWARGS.items() if k in REMOTE_API_PARAMS}
+        else:
+            return GENERATION_KWARGS
+    
+    # Get the API key based on mode
+    if args.api_mode == "remote":
+        api_key = args.api_key or os.environ.get(API_KEY_NAME)
+        if not api_key:
+            raise ValueError(f"API key is required for remote API mode. Set it with --api_key or in .env file as {API_KEY_NAME}.")
+    else:
+        api_key = "EMPTY"  # For local vLLM server
+    
+    # Filter generation kwargs based on API mode
+    filtered_kwargs = get_filtered_kwargs(args.api_mode)
+    
+    # Initialize LLM
+    print(f"Initializing LLM...")
+    try:
+        llm = create_llm(
+            model_name=args.model,
+            api_mode=args.api_mode,
+            api_key=api_key, 
+            api_base=args.api_base,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+            **filtered_kwargs
+        )
+        print(f"LLM initialized")
+    except Exception as e:
+        logger.error(f"Error initializing LLM: {e}")
+        if args.api_mode == "local":
+            print("\nFor local mode, make sure the vLLM server is running. You can start it with:")
+            print(f"python -m data_collection.serve_llm --model {args.model}")
+        return
+    
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    
+    # Define async functions for generation
+    async def async_generate_response(llm, prompt, prompt_idx, semaphore, k_responses=1):
+        async with semaphore:
+            try:
+                responses = []
+                error_count = 0
+                
+                # Generate k responses
+                for i in range(k_responses):
+                    try:
+                        # Use the LLM module to generate a response
+                        response_text = await llm.ainvoke(prompt)
+                        responses.append({
+                            "full_response": response_text.strip()
+                        })
+                    except Exception as e:
+                        error_count += 1
+                        error_message = str(e)
+                        logger.error(f"Request {i+1}/{k_responses} for prompt {prompt_idx} failed: {error_message}")
+                            
+                        responses.append({
+                            "full_response": f"Error generating response: {error_message}"
+                        })
+                
+                # Check if all responses failed
+                if error_count == k_responses:
+                    logger.error(f"All {k_responses} responses failed for prompt {prompt_idx}")
+                    return {
+                        "prompt": prompt,
+                        "responses": responses,
+                        "success": False,
+                        "prompt_idx": prompt_idx
+                    }
+                
+                return {
+                    "prompt": prompt,
+                    "responses": responses,
+                    "success": True,
+                    "prompt_idx": prompt_idx
+                }
+                
+            except Exception as e:
+                error_message = str(e)
+                logger.error(f"Error generating responses for prompt {prompt_idx}: {error_message}")
+                
+                # Add empty responses to maintain count
+                responses = [{"full_response": f"Error generating response: {error_message}"} for _ in range(k_responses)]
+                return {
+                    "prompt": prompt,
+                    "responses": responses,
+                    "success": False,
+                    "prompt_idx": prompt_idx
+                }
+    
+    async def generate_responses_async(llm, prompts, k_responses, max_concurrent):
+        # Create a semaphore to limit the number of concurrent requests
+        semaphore = asyncio.Semaphore(max_concurrent)
+        
+        # Create a progress bar for the batch
+        pbar = tqdm(total=len(prompts), desc="Generating batch responses", leave=True)
+        
+        # Modified async_generate_response that updates progress
+        async def async_generate_with_progress(llm, prompt, prompt_idx, semaphore, k_responses):
+            result = await async_generate_response(
+                llm=llm, 
+                prompt=prompt, 
+                prompt_idx=prompt_idx, 
+                semaphore=semaphore,
+                k_responses=k_responses
+            )
+            pbar.update(1)  # Update progress bar after each task completes
+            return result
+        
+        # Generate responses for each prompt in parallel
+        tasks = []
+        for i, prompt in enumerate(prompts):
+            task = async_generate_with_progress(
+                llm=llm,
+                prompt=prompt,
+                prompt_idx=i,
+                semaphore=semaphore,
+                k_responses=k_responses
+            )
+            tasks.append(task)
+        
+        print(f"Submitting all {len(tasks)} tasks in batch and waiting for all to complete...")
+        
+        # Submit all tasks at once and wait for all to complete
+        responses = await asyncio.gather(*tasks)
+        
+        # Close progress bar
+        pbar.close()
+        
+        # Sort responses by prompt index to maintain order  
+        responses.sort(key=lambda x: x["prompt_idx"])
+        
+        return [{
+            "prompt": response["prompt"],
+            "responses": response["responses"],
+        } for response in responses]
+    
+    # Save results to the output file
+    def save_results(results, output_file):
+        # Create directory if it doesn't exist
+        output_dir = os.path.dirname(output_file)
+        if output_dir:
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            
+        # Write results to the file
+        with open(output_file, "w") as f:
+            for result in results:
+                f.write(json.dumps(result) + "\n")
+        
+        logger.info(f"Saved {len(results)} results to {output_file}")
+    
+    # Process in batches
+    async def process_problems():
+        batch_size = args.batch_size
+        k_responses = args.k_responses
+        
+        # Split problems into batches
+        all_results = []
+        total_batches = (len(problems) + batch_size - 1) // batch_size  # Ceiling division
+        
+        # Process each batch
+        with tqdm(total=len(problems), desc="Processing problems") as pbar:
+            for batch_idx, batch_start in enumerate(range(0, len(problems), batch_size)):
+                batch_end = min(batch_start + batch_size, len(problems))
+                # Get the problems for the current batch
+                batch_problems = problems[batch_start:batch_end]
+                
+                print(f"\nBatch {batch_idx+1}/{total_batches}: Processing {len(batch_problems)} problems...")
+                
+                # Prepare prompts for this batch
+                batch_prompts = []
+                
+                for problem in batch_problems:
+                    # Get the question and determine if it's MCQ
+                    question = problem["problem"]
+                    is_mcq = problem.get("is_mcq", False)
+                    
+                    # Format prompt based on question type
+                    if is_mcq:
+                        # Format choices with letters (A, B, C, etc.)
+                        formatted_choices = format_choices(problem["choices"])
+                        formatted_prompt = format_prompt(question, formatted_choices)
+                    else:
+                        formatted_prompt = format_prompt(question)
+                    
+                    # Prepend system prompt
+                    final_prompt = f"{DEFAULT_SYSTEM_PROMPT}\n\n{formatted_prompt}"
+                    batch_prompts.append(final_prompt)
+                
+                # Generate responses for this batch
+                batch_responses = await generate_responses_async(
+                    llm=llm,
+                    prompts=batch_prompts,
+                    k_responses=k_responses,
+                    max_concurrent=args.max_concurrent
+                )
+                
+                # Combine with problem info
+                batch_results = []
+                for i, (problem, response_set) in enumerate(zip(batch_problems, batch_responses)):
+                    batch_results.append({
+                        "unique_id": problem["unique_id"],
+                        "problem": problem["problem"],
+                        "is_mcq": problem["is_mcq"],
+                        "choices": problem["choices"],
+                        "choice_index_correct": problem["choice_index_correct"],
+                        "explanation_correct": problem["explanation_correct"],
+                        "answer_correct": problem["answer_correct"],
+                        "category": problem["category"],
+                        "responses": response_set["responses"]
+                    })
+                
+                # Save batch results
+                if output_file:
+                    # For the first batch, write to the file directly
+                    # For subsequent batches, append to the file
+                    mode = "w" if batch_idx == 0 else "a"
+                    with open(output_file, mode) as f:
+                        for result in batch_results:
+                            f.write(json.dumps(result) + "\n")
+                
+                # Add to overall results
+                all_results.extend(batch_results)
+                
+                # Update progress
+                pbar.update(len(batch_problems))
+        
+        return all_results
+    
+    # Run the main async function
+    asyncio.run(process_problems())
+    
+    logger.info(f"Direct inference completed. Results saved to {output_file}")
+
 def main():
     args = parse_args()
     
@@ -176,109 +447,13 @@ def main():
     temp_dataset_path = os.path.join(temp_dataset_dir, "failed_problems.jsonl")
     create_filtered_dataset(failed_problems, temp_dataset_path)
     
-    # Prepare arguments for run_inference
-    # We'll use sys.argv to modify the command line arguments before calling run_inference_main
-    import sys
-    original_argv = sys.argv.copy()
-    
-    # Build new arguments for run_inference using config-based defaults
-    new_argv = [
-        "run_inference.py",  # Script name
-        f"--model={args.model}",
-        f"--num_problems=all",  # Process all problems in our filtered dataset
-        f"--k_responses={args.k_responses}",
-        f"--temperature={args.temperature}",
-        f"--max_tokens={args.max_tokens}",
-        f"--output_dir={args.output_dir}",
-        f"--output_file={args.output_file}",
-        f"--batch_size={args.batch_size}",
-        f"--api_mode={args.api_mode}",
-        f"--max_concurrent={args.max_concurrent}",
-    ]
-    
-    # Add API base URL if provided
-    if args.api_base:
-        new_argv.append(f"--api_base={args.api_base}")
-    
-    # Handle API key based on mode
-    if args.api_mode == "remote":
-        api_key = args.api_key or os.environ.get(API_KEY_NAME)
-        if api_key:
-            new_argv.append(f"--api_key={api_key}")
-    
-    # Override sys.argv temporarily
-    sys.argv = new_argv
-    
-    # Print debug information
     logger.info(f"Filtered dataset contains {len(failed_problems)} problems")
-    logger.info(f"Running inference on filtered dataset with command arguments: {' '.join(new_argv)}")
     
-    # Create a completely direct approach by creating our own version of load_math_dataset
-    # This ensures we completely bypass the datasets library
-    def load_math_dataset_direct(dataset_name=None, split=None, num_problems=None):
-        """Direct implementation that loads our filtered dataset"""
-        logger.info(f"[DIRECT LOADER] Loading filtered dataset from {temp_dataset_path}")
-        logger.info(f"[DIRECT LOADER] Ignoring requested dataset: {dataset_name}, split: {split}")
-        
-        # Load the JSONL file
-        problems = []
-        with open(temp_dataset_path, 'r') as f:
-            for line in f:
-                if line.strip():
-                    problems.append(json.loads(line))
-        
-        # If num_problems is specified and not 'all', limit the number of problems
-        if num_problems is not None and num_problems != 'all':
-            try:
-                num_to_use = int(num_problems)
-                problems = problems[:num_to_use]
-            except ValueError:
-                logger.warning(f"Invalid num_problems value: {num_problems}, using all problems")
-        
-        logger.info(f"[DIRECT LOADER] Loaded {len(problems)} problems from filtered dataset")
-        return problems
+    # Run inference directly on the problems
+    output_file = os.path.join(args.output_dir, args.output_file)
+    run_inference_direct(args, failed_problems, output_file)
     
-    try:
-        # Run inference on the filtered dataset
-        logger.info(f"Running inference with model {args.model} on {len(failed_problems)} failed problems")
-        
-        # First, replace the dataset loading function in the dataset module
-        import dataset
-        original_load_math_dataset = dataset.load_math_dataset
-        dataset.load_math_dataset = load_math_dataset_direct
-        
-        # Also replace any imported version in run_inference
-        import run_inference
-        if hasattr(run_inference, 'load_math_dataset'):
-            original_run_inference_load = run_inference.load_math_dataset
-            run_inference.load_math_dataset = load_math_dataset_direct
-        
-        # Also handle if they use a from-import style
-        import sys
-        for module_name, module in list(sys.modules.items()):
-            if module_name.startswith('data_collection.') or module_name in ('dataset', 'run_inference'):
-                if hasattr(module, 'load_math_dataset'):
-                    setattr(module, 'load_math_dataset', load_math_dataset_direct)
-        
-        # Force the system to recognize our patches by ensuring module cache is clear
-        import importlib
-        importlib.reload(dataset)
-        importlib.reload(run_inference)
-        
-        # Now run the main function
-        run_inference_main()
-    finally:
-        # Restore original state
-        sys.argv = original_argv
-        dataset.load_math_dataset = original_load_math_dataset
-        if hasattr(run_inference, 'load_math_dataset'):
-            run_inference.load_math_dataset = original_run_inference_load
-        
-        # Clean up temporary dataset if desired
-        # import shutil
-        # shutil.rmtree(temp_dataset_dir, ignore_errors=True)
-    
-    logger.info(f"Selective inference completed. Results saved to {os.path.join(args.output_dir, args.output_file)}")
+    logger.info(f"Selective inference completed. Results saved to {output_file}")
     
 if __name__ == "__main__":
     main() 
