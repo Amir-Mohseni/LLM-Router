@@ -5,6 +5,7 @@ import argparse
 from pathlib import Path
 import logging
 from collections import defaultdict
+import dataset
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -220,7 +221,6 @@ def main():
     sys.argv = new_argv
     
     # Import module for dataset patching
-    from data_collection import dataset
     original_load_math_dataset = dataset.load_math_dataset
     
     def patched_load_math_dataset(dataset_name=None, split=None, num_problems=None):
