@@ -171,13 +171,28 @@ def main():
         return
     
     # Create a temporary dataset file with just the failed problems
-    temp_dataset_path = os.path.join(args.output_dir, "temp_failed_problems_dataset.jsonl")
+    temp_dataset_dir = os.path.join(args.output_dir, "temp_dataset")
+    os.makedirs(temp_dataset_dir, exist_ok=True)
+    temp_dataset_path = os.path.join(temp_dataset_dir, "failed_problems.jsonl")
     create_filtered_dataset(failed_problems, temp_dataset_path)
     
     # Prepare arguments for run_inference
     # We'll use sys.argv to modify the command line arguments before calling run_inference_main
     import sys
     original_argv = sys.argv.copy()
+    
+    # Use a custom dataset name and split that points to our temp file
+    custom_dataset_name = "custom_failed_problems"
+    custom_split = "filtered"
+    
+    # Create a temporary config module to override dataset loading
+    temp_config_path = os.path.join(temp_dataset_dir, "temp_config.py")
+    with open(temp_config_path, 'w') as f:
+        f.write(f"""
+# Temporary config file for selective inference
+DATASET_NAME = "{custom_dataset_name}"
+DATASET_SPLIT = "{custom_split}"
+""")
     
     # Build new arguments for run_inference using config-based defaults
     new_argv = [
@@ -211,8 +226,9 @@ def main():
     logger.info(f"Filtered dataset contains {len(failed_problems)} problems")
     logger.info(f"Running inference on filtered dataset with command arguments: {' '.join(new_argv)}")
     
-    # Import module for dataset patching
-    original_load_math_dataset = load_math_dataset
+    # Create a more direct solution by patching the dataset.py module
+    import dataset
+    original_load_math_dataset = dataset.load_math_dataset
     
     def patched_load_math_dataset(dataset_name=None, split=None, num_problems=None):
         """Patched version that loads our filtered dataset instead"""
@@ -229,20 +245,63 @@ def main():
         return problems
     
     # Apply the monkey patch
-    import dataset
     dataset.load_math_dataset = patched_load_math_dataset
+    
+    # Also, create a secondary patch for the Dataset class if used
+    try:
+        from datasets import load_dataset
+        original_load_dataset = load_dataset
+        
+        def patched_load_dataset(path, name=None, split=None, *args, **kwargs):
+            """Patched version that returns our filtered dataset instead"""
+            if (path == custom_dataset_name or name == custom_dataset_name) and split == custom_split:
+                logger.info(f"Intercepting request for dataset {custom_dataset_name}/{custom_split}")
+                problems = []
+                with open(temp_dataset_path, 'r') as f:
+                    for line in f:
+                        if line.strip():
+                            problems.append(json.loads(line))
+                
+                # Create a simple dataset-like object
+                class SimpleDataset:
+                    def __getitem__(self, idx):
+                        return problems[idx]
+                    
+                    def __len__(self):
+                        return len(problems)
+                
+                logger.info(f"Returning SimpleDataset with {len(problems)} problems")
+                return SimpleDataset()
+            return original_load_dataset(path, name, split, *args, **kwargs)
+        
+        # Apply the monkey patch for load_dataset
+        import datasets
+        datasets.load_dataset = patched_load_dataset
+    except ImportError:
+        # If datasets module is not used, this won't matter
+        pass
     
     try:
         # Run inference on the filtered dataset
         logger.info(f"Running inference with model {args.model} on {len(failed_problems)} failed problems")
+        
+        # Force the system to recognize our patches by ensuring module cache is clear
+        import importlib
+        importlib.reload(dataset)
+        
         run_inference_main()
     finally:
         # Restore original state
         sys.argv = original_argv
         dataset.load_math_dataset = original_load_math_dataset
+        try:
+            datasets.load_dataset = original_load_dataset
+        except:
+            pass
         
         # Clean up temporary dataset if desired
-        # os.remove(temp_dataset_path)  # Uncomment to remove temp dataset
+        # import shutil
+        # shutil.rmtree(temp_dataset_dir, ignore_errors=True)
     
     logger.info(f"Selective inference completed. Results saved to {os.path.join(args.output_dir, args.output_file)}")
     
