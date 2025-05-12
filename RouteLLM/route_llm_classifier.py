@@ -1,7 +1,6 @@
 import os
 import re
 
-
 def load_env_variables_from_example(env_path=".env.example", ignore_keys=None):
     """
     Loads environment variables from a .env.example file and sets them in os.environ,
@@ -60,13 +59,3 @@ class RouteLLMClassifier:
             ]
         )
         return response
-
-router = RouteLLMClassifier("gpt-4","gpt-3.5-turbo")
-#Test:
-
-#Easy
-print(router.classify("Can you explain the concept of quantum computing and its potential impact on industries like healthcare and finance?"))
-#Hard
-print(router.classify("Can you solve the integral of the function 𝑓 ( 𝑥 ) = 𝑥 3 sin ⁡ ( 𝑥 ) f(x)=x 3 sin(x) from 0 to 𝜋 π and explain the steps involved?"))
-
-    
