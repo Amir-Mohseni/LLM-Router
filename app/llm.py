@@ -3,8 +3,8 @@ import os
 from dotenv import load_dotenv
 import json
 
-from .router import ModelRouter
-from .config import get_config
+from router import ModelRouter
+from config import get_config
 
 load_dotenv()
 
@@ -59,7 +59,7 @@ class LLMHandler:
             )
         return self.client_cache[provider]
     
-    def call_model(self, provider, model_name, messages, stream=False, max_tokens=4096, enable_reasoning=None):
+    def call_model(self, provider, model_name, messages, stream=True, max_tokens=4096, enable_reasoning=None):
         """
         Call an LLM model with the specified provider and model name
         
@@ -87,19 +87,17 @@ class LLMHandler:
                 "max_tokens": max_tokens,
             }
             
-            # Always enable reasoning for OpenRouter calls regardless of model
-            if provider == "openrouter":
-                # Check if this model supports reasoning according to our router configuration
-                supports_reasoning = self.router.model_supports_reasoning(model_name)
-                
-                if supports_reasoning:
-                    print(f"[DEBUG] Enabling reasoning for {model_name} (supports reasoning)")
-                    api_params["reasoning"] = {
-                        "max_tokens": self.config.get("reasoning_max_tokens", 2000),
-                        "exclude": False  # Important: Ensure reasoning is included in the response
-                    }
-                else:
-                    print(f"[DEBUG] Skipping reasoning for {model_name} (not supported according to configuration)")
+            # Check if this model supports reasoning according to our router configuration
+            supports_reasoning = self.router.model_supports_reasoning(model_name)
+            
+            # Add reasoning parameter if the model supports it and we're requesting reasoning
+            if supports_reasoning and (enable_reasoning is None or enable_reasoning):
+                print(f"[DEBUG] Enabling reasoning for {model_name} (supports reasoning)")
+                api_params["reasoning"] = {
+                    "exclude": False  # Important: Ensure reasoning is included in the response
+                }
+            else:
+                print(f"[DEBUG] Skipping reasoning for {model_name} (not supported according to configuration)")
             
             # Call the API with error handling for unsupported parameters
             try:
@@ -107,7 +105,7 @@ class LLMHandler:
                 response = client.chat.completions.create(**api_params)
                 
                 # For non-streaming responses, log some information about the response
-                if not stream and provider == "openrouter":
+                if not stream:
                     try:
                         print(f"[DEBUG] Response keys: {dir(response)}")
                         print(f"[DEBUG] Response choices: {response.choices}")
@@ -156,8 +154,8 @@ class LLMHandler:
                 # Prepare result with content
                 result = {"content": content}
                 
-                # Try to extract reasoning from OpenRouter response
-                if provider == "openrouter":
+                # Try to extract reasoning from response if model supports it
+                if supports_reasoning:
                     print(f"[DEBUG] Attempting to extract reasoning from {model_name} response")
                     
                     # Method 1: Try to access reasoning attribute directly
@@ -273,7 +271,7 @@ class LLMHandler:
             messages = self._format_messages(message, history)
             
             # Call the model using the appropriate provider
-            result = self.call_model(provider, model_key, messages, stream=False, enable_reasoning=enable_reasoning)
+            result = self.call_model(provider, model_key, messages, stream=True, enable_reasoning=enable_reasoning)
             
             return result
             
@@ -320,23 +318,33 @@ class LLMHandler:
             # Format messages for the API
             messages = self._format_messages(message, history)
             
-            # Always enable reasoning for provider-supported models
-            supports_reasoning = provider == "openrouter"
-            has_reasoning = supports_reasoning
+            # Check if model supports reasoning according to configuration
+            supports_reasoning = self.router.model_supports_reasoning(model_key)
+            print(f"[DEBUG] Model {model_key} reasoning support: {supports_reasoning}")
             
-            # If provider supports reasoning, indicate it in first response
-            if has_reasoning:
-                print(f"[DEBUG] Model supports reasoning, indicating in response")
-                yield {"content": "", "has_reasoning": True, "reasoning": ""}
+            # Set up initial reasoning state (will be updated if we detect reasoning in the stream)
+            has_reasoning = False
+            
+            # If the model is configured to support reasoning, indicate it in the first response
+            if supports_reasoning:
+                print(f"[DEBUG] Model supports reasoning according to configuration, indicating in response")
+                has_reasoning = True
+                # Return an initial message indicating reasoning is available 
+                # This will create the thinking message placeholder in the UI
+                initial_response = {
+                    "content": "", 
+                    "has_reasoning": True, 
+                    "reasoning": "🧠 Initializing thinking process...\n\n"
+                }
+                yield initial_response
             
             # Call the model with streaming enabled using the appropriate provider
-            # Always try with reasoning for OpenRouter
             stream = self.call_model(
                 provider, 
                 model_key, 
                 messages, 
                 stream=True, 
-                enable_reasoning=True  # Always try reasoning with OpenRouter
+                enable_reasoning=enable_reasoning
             )
             
             # Handle error responses (strings or dicts with error content)
@@ -365,9 +373,12 @@ class LLMHandler:
                         updated = True
                     
                     # Extract reasoning from delta (for OpenRouter)
-                    if has_reasoning and hasattr(delta, "reasoning") and delta.reasoning is not None:
+                    # Access reasoning directly from delta attribute
+                    if hasattr(delta, "reasoning") and delta.reasoning is not None:
                         reasoning = delta.reasoning
                         full_reasoning += reasoning
+                        # Mark as having reasoning regardless of the initial has_reasoning flag
+                        has_reasoning = True
                         updated = True
                 
                 # Only yield if something was updated
@@ -393,7 +404,7 @@ class LLMHandler:
             print(error_msg)
             yield {"content": f"Sorry, I encountered an error: {str(e)}"}
     
-    def call_model_directly(self, provider, model_name, message, history=None, stream=False, max_tokens=4096, enable_reasoning=None):
+    def call_model_directly(self, provider, model_name, message, history=None, stream=True, max_tokens=4096, enable_reasoning=None):
         """
         Call a model directly with a simpler interface
         
@@ -441,7 +452,8 @@ if __name__ == "__main__":
             "openrouter", 
             "google/gemini-2.5-pro-preview", 
             "What's the most efficient algorithm for sorting a large dataset?",
-            enable_reasoning=True
+            enable_reasoning=True,
+            stream=False
         )
         
         if isinstance(response, dict):

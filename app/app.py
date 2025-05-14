@@ -48,13 +48,13 @@ def respond(message, chat_history, model_name, notification, reasoning_state, ha
     # Add initial placeholders for thinking and response
     thinking_msg = {
         "role": "assistant",
-        "content": "",
+        "content": "🧠 Thinking...",
         "metadata": {"title": "⏳ Thinking Process"}
     }
     
     response_msg = {
         "role": "assistant",
-        "content": ""
+        "content": "⌛ Generating response..."
     }
     
     # Process the first chunk to extract model info or content
@@ -75,20 +75,23 @@ def respond(message, chat_history, model_name, notification, reasoning_state, ha
                 selected_model = content.replace("Using ", "").split(" (")[0]
                 gr.Info(f"🤖 Model selected: {selected_model}")
                 
+                # Add response message placeholder for the actual response
+                chat_history.append(response_msg)
+                
                 # Check if reasoning is available from the first chunk
                 has_reasoning = first_chunk.get("has_reasoning", False)
                 reasoning_text = first_chunk.get("reasoning", "")
                 
-                if has_reasoning or reasoning_text:
+                # Create a separate thinking message if reasoning is supported
+                if has_reasoning:
                     # Add a visual indicator that reasoning is available
                     model_notification += " 🧠 Model supports reasoning"
                     thinking_buffer = reasoning_text if reasoning_text else ""
                     
-                    # Add the thinking message to chat history
-                    chat_history.append(thinking_msg)
-                    
-                # Add response message placeholder
-                chat_history.append(response_msg)
+                    # Insert the thinking message BEFORE the response message
+                    # This ensures thinking appears as a separate message
+                    chat_history.insert(-1, thinking_msg.copy())
+                    chat_history[-2]["content"] = thinking_buffer
                 
                 # Process remaining chunks
                 for chunk in response_generator:
@@ -96,18 +99,21 @@ def respond(message, chat_history, model_name, notification, reasoning_state, ha
                     chunk_content = chunk.get("content", "")
                     chunk_reasoning = chunk.get("reasoning", "")
                     
-                    # If we have reasoning and the thinking message exists
-                    if chunk_reasoning and len(chat_history) >= 2:
+                    # If we have reasoning content and reasoning is enabled
+                    if chunk_reasoning and has_reasoning:
+                        # Make sure we have a thinking message
+                        if len(chat_history) < 2 or "Thinking Process" not in str(chat_history[-2].get("metadata", {})):
+                            # Insert thinking message if it doesn't exist yet
+                            chat_history.insert(-1, thinking_msg.copy())
+                        
                         # Update thinking buffer
                         thinking_buffer += chunk_reasoning
                         chat_history[-2]["content"] = thinking_buffer
                     
                     # Always update the response buffer with content
-                    # Now we can use the content directly since llm.py returns the full content
                     if chunk_content:
                         response_buffer = chunk_content
-                        if len(chat_history) >= 1:
-                            chat_history[-1]["content"] = response_buffer
+                        chat_history[-1]["content"] = response_buffer
                     
                     # Yield the updated state
                     yield "", chat_history, model_notification, thinking_buffer, has_reasoning
@@ -119,46 +125,58 @@ def respond(message, chat_history, model_name, notification, reasoning_state, ha
                 has_reasoning = first_chunk.get("has_reasoning", False)
                 reasoning_text = first_chunk.get("reasoning", "")
                 
-                if has_reasoning or reasoning_text:
-                    model_notification += " 🧠 Model supports reasoning"
-                    thinking_buffer = reasoning_text if reasoning_text else ""
-                    
-                    # Add the thinking message
-                    chat_history.append(thinking_msg)
-                
-                # Initialize response with first chunk content
+                # Add response message for the content first
                 response_buffer = content
                 chat_history.append(response_msg)
                 chat_history[-1]["content"] = response_buffer
                 
-                # If we have a thinking message, update it
-                if has_reasoning and len(chat_history) >= 2:
+                # If reasoning is supported, add a separate thinking message BEFORE the response
+                if has_reasoning or reasoning_text:
+                    model_notification += " 🧠 Model supports reasoning"
+                    thinking_buffer = reasoning_text if reasoning_text else ""
+                    
+                    # Insert the thinking message before the response message
+                    chat_history.insert(-1, thinking_msg.copy())
                     chat_history[-2]["content"] = thinking_buffer
                 
                 # Yield initial state
-                yield "", chat_history, model_notification, thinking_buffer, has_reasoning
+                yield "", chat_history, model_notification, thinking_buffer if has_reasoning else "", has_reasoning
                 
                 # Process remaining chunks
                 for chunk in response_generator:
                     if isinstance(chunk, dict):
                         chunk_content = chunk.get("content", "")
-                        # Use content directly
+                        chunk_reasoning = chunk.get("reasoning", "")
+                        
+                        # Handle reasoning updates if available
+                        if chunk_reasoning and has_reasoning:
+                            # Make sure we have a thinking message
+                            if len(chat_history) < 2 or "Thinking Process" not in str(chat_history[-2].get("metadata", {})):
+                                # Insert thinking message if it doesn't exist yet
+                                chat_history.insert(-1, thinking_msg.copy())
+                            
+                            # Update thinking buffer and message content
+                            thinking_buffer += chunk_reasoning
+                            chat_history[-2]["content"] = thinking_buffer
+                        
+                        # Update response content
                         if chunk_content:
                             response_buffer = chunk_content
+                            chat_history[-1]["content"] = response_buffer
                     else:
                         # Use content directly
                         if isinstance(chunk, str):
                             response_buffer = chunk
-                    
-                    # Update response
-                    chat_history[-1]["content"] = response_buffer
+                            chat_history[-1]["content"] = response_buffer
                     
                     # Yield updated state
-                    yield "", chat_history, model_notification, "", False
+                    yield "", chat_history, model_notification, thinking_buffer if has_reasoning else "", has_reasoning
         else:
             # Legacy string-based response handling
             model_notification = f"🤖 Using {model_name} or automatic selection"
             response_buffer = first_chunk if isinstance(first_chunk, str) else ""
+            thinking_buffer = ""
+            has_reasoning = False
             
             # Add response message
             chat_history.append(response_msg)
@@ -169,21 +187,35 @@ def respond(message, chat_history, model_name, notification, reasoning_state, ha
             
             # Process remaining chunks
             for chunk in response_generator:
+                updated = False
+                chunk_content = ""
+                
                 if isinstance(chunk, dict):
                     chunk_content = chunk.get("content", "")
-                    # Use content directly
+                    chunk_reasoning = chunk.get("reasoning", "")
+                    
+                    # Handle reasoning if available
+                    if chunk_reasoning:
+                        # Add thinking message if we don't have one
+                        if "Thinking Process" not in str([m.get("metadata", {}) for m in chat_history]):
+                            chat_history.insert(-1, thinking_msg.copy())
+                            thinking_buffer = chunk_reasoning
+                            chat_history[-2]["content"] = thinking_buffer
+                            updated = True
+                            has_reasoning = True
+                    
                     if chunk_content:
                         response_buffer = chunk_content
-                else:
-                    # Use content directly
-                    if isinstance(chunk, str):
-                        response_buffer = chunk
+                        chat_history[-1]["content"] = response_buffer
+                        updated = True
+                elif isinstance(chunk, str):
+                    response_buffer = chunk
+                    chat_history[-1]["content"] = response_buffer
+                    updated = True
                 
-                # Update response
-                chat_history[-1]["content"] = response_buffer
-                
-                # Yield updated state
-                yield "", chat_history, model_notification, "", False
+                # Yield updated state only if something changed
+                if updated:
+                    yield "", chat_history, model_notification, thinking_buffer if has_reasoning else "", has_reasoning
     
     except StopIteration:
         # Handle empty response
@@ -259,8 +291,8 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
     css = """
     /* Styling for thinking blocks */
     .thinking-block {
-        background-color: #f8f9fa;
-        border-left: 4px solid #6b7280;
+        background-color: #f0f7ff;
+        border-left: 4px solid #2563eb;
         padding: 10px 15px;
         margin: 5px 0;
         font-family: monospace;
@@ -270,7 +302,7 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
     
     .thinking-title {
         font-weight: bold;
-        color: #374151;
+        color: #2563eb;
         margin-bottom: 8px;
         display: flex;
         align-items: center;
@@ -365,6 +397,26 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
         padding: 8px 15px;
         border-radius: 8px;
     }
+    
+    /* Add special styling for thinking messages in the chat */
+    .message[data-testid*="thinking"] {
+        background-color: #f0f7ff !important;
+        border-left: 4px solid #2563eb !important;
+    }
+    
+    /* Add animation for the thinking indicator */
+    @keyframes thinking {
+        0% { content: "🧠 ."; }
+        33% { content: "🧠 .."; }
+        66% { content: "🧠 ..."; }
+        100% { content: "🧠 ...."; }
+    }
+    
+    .thinking-indicator:after {
+        content: "🧠 ...";
+        animation: thinking 1.5s infinite;
+        display: inline-block;
+    }
     """
     
     # Add JavaScript for collapsible thinking sections
@@ -378,9 +430,11 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
             // Check if this is a thinking message that hasn't been processed
             const messageText = msg.textContent || '';
             
-            // Debug what messages we're seeing
-            if (messageText.includes("🧠") || messageText.includes("Thinking")) {
-                console.log('Found potential thinking message:', messageText.substring(0, 50));
+            // Apply thinking styling to thinking messages
+            if ((messageText.includes("🧠") || messageText.includes("Thinking")) && !msg.getAttribute('data-thinking-styled')) {
+                msg.setAttribute('data-testid', 'thinking-message');
+                msg.setAttribute('data-thinking-styled', 'true');
+                console.log('Applied thinking styling to message');
             }
             
             // Changed to match the new thinking message format

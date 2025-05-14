@@ -2,8 +2,8 @@ import os
 # Set tokenizers parallelism to avoid warnings
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-from .classifier import Classifier
-from .config import get_config
+from classifier import Classifier
+from config import get_config
 
 
 class ModelRouter:
@@ -37,7 +37,17 @@ class ModelRouter:
                 "display_name": "Qwen 3 14B",
                 "provider": "openrouter",
                 "supports_reasoning": True
-            }
+            },
+            "anthropic/claude-3.7-sonnet:thinking": {
+                "display_name": "Claude 3.7 Sonnet (Thinking)",
+                "provider": "openrouter",
+                "supports_reasoning": True
+            },
+            "anthropic/claude-3.7-sonnet": {
+                "display_name": "Claude 3.7 Sonnet",
+                "provider": "openrouter",
+                "supports_reasoning": False
+            },
         }
         self.classifier = Classifier(model_name='AmirMohseni/BERT-Router-base')
     
@@ -54,7 +64,8 @@ class ModelRouter:
         model_type = self.classifier.classify(message)
         
         if model_type == 'large_llm':
-            return 'google/gemini-2.5-flash-preview'  # Large powerful model
+            #return 'google/gemini-2.5-flash-preview'  # Large powerful model
+            return 'google/gemini-2.5-pro-preview'
         elif model_type == 'small_llm':
             return 'google/gemini-2.0-flash-001'    # Smaller, faster model
         else:
