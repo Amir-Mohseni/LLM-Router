@@ -91,7 +91,7 @@ def respond(message, chat_history, model_name, notification, reasoning_state, ha
                     # Insert the thinking message BEFORE the response message
                     # This ensures thinking appears as a separate message
                     chat_history.insert(-1, thinking_msg.copy())
-                    chat_history[-2]["content"] = thinking_buffer
+                    chat_history[-2]["content"] = thinking_buffer if thinking_buffer else "🧠 Thinking..."
                 
                 # Process remaining chunks
                 for chunk in response_generator:
@@ -101,11 +101,6 @@ def respond(message, chat_history, model_name, notification, reasoning_state, ha
                     
                     # If we have reasoning content and reasoning is enabled
                     if chunk_reasoning and has_reasoning:
-                        # Make sure we have a thinking message
-                        if len(chat_history) < 2 or "Thinking Process" not in str(chat_history[-2].get("metadata", {})):
-                            # Insert thinking message if it doesn't exist yet
-                            chat_history.insert(-1, thinking_msg.copy())
-                        
                         # Update thinking buffer
                         thinking_buffer += chunk_reasoning
                         chat_history[-2]["content"] = thinking_buffer
@@ -298,6 +293,7 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
         font-family: monospace;
         white-space: pre-wrap;
         font-size: 0.9em;
+        border-radius: 4px;
     }
     
     .thinking-title {
@@ -311,13 +307,14 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
     
     /* Make thinking blocks collapsible */
     .thinking-content {
-        max-height: 800px;
-        overflow: auto;
+        max-height: 0;
+        overflow: hidden;
         transition: max-height 0.3s ease-out;
     }
     
     .thinking-content.expanded {
         max-height: 800px;
+        overflow: auto;
         transition: max-height 0.5s ease-in;
     }
     
@@ -335,6 +332,29 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
     
     .thinking-toggle:hover {
         background: #d1d5db;
+    }
+    
+    /* Add special styling for thinking messages in the chat */
+    .message[data-testid="thinking-message"],
+    .thinking-message,
+    .message[data-testid*="thinking"] {
+        background-color: #f0f7ff !important;
+        border-left: 4px solid #2563eb !important;
+        position: relative;
+    }
+    
+    /* Add animation for the thinking indicator */
+    @keyframes thinking {
+        0% { content: "🧠 ."; }
+        33% { content: "🧠 .."; }
+        66% { content: "🧠 ..."; }
+        100% { content: "🧠 ...."; }
+    }
+    
+    .thinking-indicator:after {
+        content: "🧠 ...";
+        animation: thinking 1.5s infinite;
+        display: inline-block;
     }
     
     /* Other CSS styles... */
@@ -397,26 +417,6 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
         padding: 8px 15px;
         border-radius: 8px;
     }
-    
-    /* Add special styling for thinking messages in the chat */
-    .message[data-testid*="thinking"] {
-        background-color: #f0f7ff !important;
-        border-left: 4px solid #2563eb !important;
-    }
-    
-    /* Add animation for the thinking indicator */
-    @keyframes thinking {
-        0% { content: "🧠 ."; }
-        33% { content: "🧠 .."; }
-        66% { content: "🧠 ..."; }
-        100% { content: "🧠 ...."; }
-    }
-    
-    .thinking-indicator:after {
-        content: "🧠 ...";
-        animation: thinking 1.5s infinite;
-        display: inline-block;
-    }
     """
     
     # Add JavaScript for collapsible thinking sections
@@ -424,22 +424,31 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
     function setupThinkingBlocks() {
         // Find all messages
         const messages = document.querySelectorAll('.message');
-        console.log('Looking for thinking blocks among', messages.length, 'messages');
         
         messages.forEach(msg => {
             // Check if this is a thinking message that hasn't been processed
             const messageText = msg.textContent || '';
             
-            // Apply thinking styling to thinking messages
-            if ((messageText.includes("🧠") || messageText.includes("Thinking")) && !msg.getAttribute('data-thinking-styled')) {
+            // Apply thinking styling to thinking messages (both thinking markers and metadata)
+            const isThinking = 
+                (messageText.includes("🧠") || messageText.includes("Thinking")) || 
+                (msg.getAttribute('data-testid') && msg.getAttribute('data-testid').includes('thinking'));
+                
+            if (isThinking && !msg.getAttribute('data-thinking-styled')) {
                 msg.setAttribute('data-testid', 'thinking-message');
                 msg.setAttribute('data-thinking-styled', 'true');
+                msg.classList.add('thinking-message');
                 console.log('Applied thinking styling to message');
             }
             
-            // Changed to match the new thinking message format
-            if (messageText.includes("🧠 Thinking Process") && !msg.classList.contains('thinking-processed')) {
-                console.log('Processing thinking block:', messageText.substring(0, 50));
+            // Specifically look for thinking process blocks to make collapsible
+            const hasThinkingProcess = 
+                messageText.includes("🧠 Thinking Process") || 
+                (msg.querySelector('.message-body') && 
+                 msg.querySelector('.message-body').textContent.includes("Thinking Process"));
+                
+            if (hasThinkingProcess && !msg.classList.contains('thinking-processed')) {
+                console.log('Processing thinking block');
                 
                 // Mark as processed
                 msg.classList.add('thinking-processed');
@@ -458,7 +467,7 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
                     fullText.substring(headerEnd + 2) : 
                     fullText.replace("🧠 Thinking Process", "").trim();
                 
-                console.log('Extracted thinking content:', textContent.substring(0, 50) + '...');
+                console.log('Extracted thinking content');
                 
                 // Clear original content
                 content.innerHTML = '';
@@ -478,14 +487,13 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
                     const content = this.parentNode.nextSibling;
                     const isExpanded = content.classList.toggle('expanded');
                     this.textContent = isExpanded ? 'Hide' : 'Show';
-                    console.log('Toggled thinking block to', isExpanded ? 'expanded' : 'collapsed');
                 };
                 
                 title.appendChild(toggle);
                 
                 const thinkingContent = document.createElement('div');
                 thinkingContent.className = 'thinking-content expanded';
-                thinkingContent.textContent = textContent;
+                thinkingContent.textContent = textContent || "The model is thinking...";
                 
                 // Assemble the thinking block
                 thinkingBlock.appendChild(title);
@@ -496,7 +504,7 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
         });
         
         // Schedule the next check
-        setTimeout(setupThinkingBlocks, 500);  // Check more frequently
+        setTimeout(setupThinkingBlocks, 500);  // Check regularly
     }
     
     // Start monitoring for thinking blocks
@@ -507,7 +515,6 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
     
     // Also run when content might have changed
     const observer = new MutationObserver(function(mutations) {
-        console.log('Mutations detected:', mutations.length);
         setupThinkingBlocks();
     });
     
@@ -515,10 +522,7 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
     setTimeout(function() {
         const chatbot = document.getElementById('chatbot');
         if (chatbot) {
-            console.log('Starting observation of chatbot container');
             observer.observe(chatbot, { childList: true, subtree: true });
-        } else {
-            console.log('Could not find chatbot container');
         }
     }, 1000);
     """
@@ -556,7 +560,7 @@ with gr.Blocks(title="Streaming LLM Chat App") as demo:
     
     # Update clear function to also clear the reasoning
     clear_btn.click(
-        fn=lambda: ([], "", "", False, False),
+        fn=lambda: ([], "", "", False),
         outputs=[chatbot, model_notification, reasoning_state, has_reasoning_state],
         queue=False
     )

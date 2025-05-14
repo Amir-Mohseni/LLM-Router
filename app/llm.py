@@ -3,8 +3,8 @@ import os
 from dotenv import load_dotenv
 import json
 
-from router import ModelRouter
-from config import get_config
+from .router import ModelRouter
+from .config import get_config
 
 load_dotenv()
 
@@ -301,8 +301,17 @@ class LLMHandler:
                 model_key = self.router.select_model(message, history)
                 model_info = f"Using {self.router.get_model_display_name(model_key)} (automatic selection)"
                 print(f"[DEBUG] Auto-selected model: {model_key}")
-                # First yield the model info
-                yield {"content": model_info}
+                
+                # Check if the auto-selected model supports reasoning
+                supports_reasoning = self.router.model_supports_reasoning(model_key)
+                
+                # First yield the model info with reasoning support flag
+                initial_response = {"content": model_info}
+                if supports_reasoning:
+                    initial_response["has_reasoning"] = True
+                    initial_response["reasoning"] = "🧠 Initializing thinking process...\n\n"
+                    
+                yield initial_response
             else:
                 # Convert display name back to model key
                 model_key = self.router.get_model_key_from_display_name(model_selection)
@@ -323,12 +332,11 @@ class LLMHandler:
             print(f"[DEBUG] Model {model_key} reasoning support: {supports_reasoning}")
             
             # Set up initial reasoning state (will be updated if we detect reasoning in the stream)
-            has_reasoning = False
+            has_reasoning = supports_reasoning
             
-            # If the model is configured to support reasoning, indicate it in the first response
-            if supports_reasoning:
+            # If we're in manual mode and the model supports reasoning, send an initial response
+            if model_selection != "automatic" and supports_reasoning:
                 print(f"[DEBUG] Model supports reasoning according to configuration, indicating in response")
-                has_reasoning = True
                 # Return an initial message indicating reasoning is available 
                 # This will create the thinking message placeholder in the UI
                 initial_response = {

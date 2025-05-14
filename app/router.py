@@ -1,9 +1,10 @@
 import os
-# Set tokenizers parallelism to avoid warnings
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+from dotenv import load_dotenv
 
-from classifier import Classifier
-from config import get_config
+load_dotenv()
+
+from .classifier import Classifier
+from .config import get_config
 
 
 class ModelRouter:
@@ -64,8 +65,7 @@ class ModelRouter:
         model_type = self.classifier.classify(message)
         
         if model_type == 'large_llm':
-            #return 'google/gemini-2.5-flash-preview'  # Large powerful model
-            return 'google/gemini-2.5-pro-preview'
+            return 'google/gemini-2.5-flash-preview'  # Large powerful model
         elif model_type == 'small_llm':
             return 'google/gemini-2.0-flash-001'    # Smaller, faster model
         else:
