@@ -18,6 +18,9 @@ LLM_CONFIG = {
         "openrouter": "OPENROUTER_API_KEY"
     },
     
+    # Default reasoning tokens limit
+    "reasoning_max_tokens": 2000,
+    
     # Maximum conversation history to maintain
     "max_history_length": 10,
 }
