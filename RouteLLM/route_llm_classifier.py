@@ -2,7 +2,11 @@ import os
 import re
 from dotenv import load_dotenv
 
-load_dotenv()  
+load_dotenv(dotenv_path=".env.example")
+
+# print("OPENAI_API_KEY:", os.getenv("OPENAI_API_KEY"))
+# print("GEMINI_API_KEY:", os.getenv("GEMINI_API_KEY"))
+# print("TOGETHERAI_API_KEY:", os.getenv("TOGETHERAI_API_KEY"))
 
 from routellm.controller import Controller
 
