@@ -1,13 +1,8 @@
 import os
 import re
+from dotenv import load_dotenv
 
-os.environ["HF_TOKEN"] = "empty"
-os.environ["OPENAI_API_KEY"] = "empty"
-os.environ["VLLM_API_KEY"] = "empty"
-os.environ["GEMINI_API_KEY"] = "empty"
-os.environ["TOGETHERAI_API_KEY"] = "empty"
-
-os.environ["TOKENIZERS_PARALLELISM"] = "false"     
+load_dotenv()  
 
 from routellm.controller import Controller
 
