@@ -11,7 +11,7 @@ import os
 import json
 import argparse
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import datasets
 from datasets import Dataset, DatasetDict
 from huggingface_hub import HfApi, login
@@ -38,6 +38,130 @@ def process_data_for_upload(data: List[Dict]) -> List[Dict]:
     """
     Process the data to create a row for each question with columns for responses.
     Also add total count and correct count for each question.
+    Now handles LLM judge fields: extraction_method and judge_explanation.
+    Ensures consistent schema across all splits.
+    """
+    processed_data = []
+    
+    # First pass: determine the maximum number of responses across all entries
+    max_responses = 0
+    for entry in data:
+        responses = entry.get("responses", [])
+        max_responses = max(max_responses, len(responses))
+    
+    for entry in data:
+        # Extract responses and create a new entry
+        responses = entry.get("responses", [])
+        
+        # Create a new processed entry
+        processed_entry = {
+            # Keep original question fields
+            "unique_id": entry.get("unique_id", ""),
+            "problem": entry.get("problem", ""),
+            "is_mcq": entry.get("is_mcq", False),
+            "choices": entry.get("choices", []),
+            "choice_index_correct": entry.get("choice_index_correct"),
+            "explanation_correct": entry.get("explanation_correct", ""),
+            "answer_correct": entry.get("answer_correct", ""),
+            "category": entry.get("category", ""),
+        }
+        
+        # Add each response as a separate column (pad to max_responses for consistency)
+        total_responses = len(responses)
+        correct_count = 0
+        
+        # Track extraction method statistics
+        extraction_method_counts = {}
+        
+        # Process all response slots up to max_responses to ensure consistent schema
+        for i in range(max_responses):
+            if i < len(responses):
+                response = responses[i]
+                
+                # Add the response
+                processed_entry[f"response_{i+1}"] = response.get("full_response", "")
+                
+                # Add extracted answer if available
+                processed_entry[f"extracted_answer_{i+1}"] = response.get("extracted_answer", "")
+                
+                # Add correctness if available
+                is_correct = response.get("is_correct", False)
+                processed_entry[f"is_correct_{i+1}"] = is_correct
+                
+                # Add extraction method if available (new field)
+                extraction_method = response.get("extraction_method", "unknown")
+                processed_entry[f"extraction_method_{i+1}"] = extraction_method
+                
+                # Count extraction methods
+                extraction_method_counts[extraction_method] = extraction_method_counts.get(extraction_method, 0) + 1
+                
+                # Add judge explanation if available (new field) - always add field for consistency
+                processed_entry[f"judge_explanation_{i+1}"] = response.get("judge_explanation", "")
+                
+                # Count correct responses
+                if is_correct:
+                    correct_count += 1
+            else:
+                # Pad with empty values for consistent schema
+                processed_entry[f"response_{i+1}"] = ""
+                processed_entry[f"extracted_answer_{i+1}"] = ""
+                processed_entry[f"is_correct_{i+1}"] = False
+                processed_entry[f"extraction_method_{i+1}"] = ""
+                processed_entry[f"judge_explanation_{i+1}"] = ""
+        
+        # Add total counts
+        processed_entry["total_responses"] = total_responses
+        processed_entry["correct_responses"] = correct_count
+        processed_entry["accuracy"] = correct_count / total_responses if total_responses > 0 else 0
+        
+        # Add extraction method statistics
+        processed_entry["extraction_method_counts"] = extraction_method_counts
+        
+        # Add individual extraction method counts for easier analysis
+        for method in ["math_verify", "llm_judge", "regex_fallback"]:
+            processed_entry[f"{method}_count"] = extraction_method_counts.get(method, 0)
+            processed_entry[f"{method}_accuracy"] = (
+                sum(1 for i, response in enumerate(responses) 
+                    if response.get("extraction_method") == method and response.get("is_correct", False))
+                / extraction_method_counts.get(method, 1)  # Avoid division by zero
+                if extraction_method_counts.get(method, 0) > 0 else 0.0
+            )
+        
+        processed_data.append(processed_entry)
+    
+    return processed_data
+
+def standardize_schemas_across_splits(train_data: List[Dict], val_data: List[Dict], test_data: List[Dict]) -> Tuple[List[Dict], List[Dict], List[Dict]]:
+    """
+    Ensure all splits have the same schema by finding the global maximum number of responses
+    and reprocessing all splits with consistent field structure.
+    """
+    # Find global maximum responses across all splits
+    global_max_responses = 0
+    all_data = [train_data, val_data, test_data]
+    
+    for data_split in all_data:
+        if data_split:  # Check if split exists
+            for entry in data_split:
+                responses = entry.get("responses", [])
+                global_max_responses = max(global_max_responses, len(responses))
+    
+    print(f"Global maximum responses across all splits: {global_max_responses}")
+    
+    # Reprocess all splits with the global maximum
+    standardized_splits = []
+    for data_split in all_data:
+        if data_split:
+            standardized_split = process_data_for_upload_with_max_responses(data_split, global_max_responses)
+            standardized_splits.append(standardized_split)
+        else:
+            standardized_splits.append([])
+    
+    return tuple(standardized_splits)
+
+def process_data_for_upload_with_max_responses(data: List[Dict], max_responses: int) -> List[Dict]:
+    """
+    Process data with a specified maximum number of response columns for schema consistency.
     """
     processed_data = []
     
@@ -58,30 +182,66 @@ def process_data_for_upload(data: List[Dict]) -> List[Dict]:
             "category": entry.get("category", ""),
         }
         
-        # Add each response as a separate column
+        # Add each response as a separate column (pad to max_responses for consistency)
         total_responses = len(responses)
         correct_count = 0
         
-        for i, response in enumerate(responses):
-            # Add the response
-            processed_entry[f"response_{i+1}"] = response.get("full_response", "")
-            
-            # Add extracted answer if available
-            if "extracted_answer" in response:
+        # Track extraction method statistics
+        extraction_method_counts = {}
+        
+        # Process all response slots up to max_responses to ensure consistent schema
+        for i in range(max_responses):
+            if i < len(responses):
+                response = responses[i]
+                
+                # Add the response
+                processed_entry[f"response_{i+1}"] = response.get("full_response", "")
+                
+                # Add extracted answer if available
                 processed_entry[f"extracted_answer_{i+1}"] = response.get("extracted_answer", "")
-            
-            # Add correctness if available
-            is_correct = response.get("is_correct", False)
-            processed_entry[f"is_correct_{i+1}"] = is_correct
-            
-            # Count correct responses
-            if is_correct:
-                correct_count += 1
+                
+                # Add correctness if available
+                is_correct = response.get("is_correct", False)
+                processed_entry[f"is_correct_{i+1}"] = is_correct
+                
+                # Add extraction method if available (new field)
+                extraction_method = response.get("extraction_method", "unknown")
+                processed_entry[f"extraction_method_{i+1}"] = extraction_method
+                
+                # Count extraction methods
+                extraction_method_counts[extraction_method] = extraction_method_counts.get(extraction_method, 0) + 1
+                
+                # Add judge explanation if available (new field) - always add field for consistency
+                processed_entry[f"judge_explanation_{i+1}"] = response.get("judge_explanation", "")
+                
+                # Count correct responses
+                if is_correct:
+                    correct_count += 1
+            else:
+                # Pad with empty values for consistent schema
+                processed_entry[f"response_{i+1}"] = ""
+                processed_entry[f"extracted_answer_{i+1}"] = ""
+                processed_entry[f"is_correct_{i+1}"] = False
+                processed_entry[f"extraction_method_{i+1}"] = ""
+                processed_entry[f"judge_explanation_{i+1}"] = ""
         
         # Add total counts
         processed_entry["total_responses"] = total_responses
         processed_entry["correct_responses"] = correct_count
-        processed_entry["accuracy"] = correct_count / total_responses if total_responses > 0 else 0
+        processed_entry["accuracy"] = correct_count / total_responses if total_responses > 0 else 0.0
+        
+        # Add extraction method statistics
+        processed_entry["extraction_method_counts"] = extraction_method_counts
+        
+        # Add individual extraction method counts for easier analysis
+        for method in ["math_verify", "llm_judge", "regex_fallback"]:
+            processed_entry[f"{method}_count"] = extraction_method_counts.get(method, 0)
+            processed_entry[f"{method}_accuracy"] = (
+                sum(1 for i, response in enumerate(responses) 
+                    if response.get("extraction_method") == method and response.get("is_correct", False))
+                / extraction_method_counts.get(method, 1)  # Avoid division by zero
+                if extraction_method_counts.get(method, 0) > 0 else 0.0
+            )
         
         processed_data.append(processed_entry)
     
@@ -91,6 +251,7 @@ def create_dataset_from_folder(folder_path: str) -> DatasetDict:
     """
     Create a DatasetDict from a folder containing train.jsonl, val.jsonl, and test.jsonl files.
     Process the data to have a row per question with columns for responses.
+    Ensures consistent schema across all splits.
     """
     folder_path = Path(folder_path)
     
@@ -103,36 +264,46 @@ def create_dataset_from_folder(folder_path: str) -> DatasetDict:
     val_file = folder_path / "val.jsonl"
     test_file = folder_path / "test.jsonl"
     
+    # Load raw data first
+    train_data = load_jsonl_file(train_file) if train_file.exists() else []
+    val_data = load_jsonl_file(val_file) if val_file.exists() else []
+    test_data = load_jsonl_file(test_file) if test_file.exists() else []
+    
+    # Ensure consistent schemas across all splits
+    processed_train_data, processed_val_data, processed_test_data = standardize_schemas_across_splits(
+        train_data, val_data, test_data
+    )
+    
     # Create dataset dictionary
     dataset_dict = {}
     
-    # Load train split if it exists
-    if train_file.exists():
-        train_data = load_jsonl_file(train_file)
-        processed_train_data = process_data_for_upload(train_data)
+    if processed_train_data:
         dataset_dict["train"] = Dataset.from_list(processed_train_data)
+        print(f"✅ Created train split with {len(processed_train_data)} examples")
     else:
-        print(f"Warning: {train_file} not found")
+        print(f"⚠️  Warning: No train data found")
     
-    # Load validation split if it exists (already named val.jsonl)
-    if val_file.exists():
-        val_data = load_jsonl_file(val_file)
-        processed_val_data = process_data_for_upload(val_data)
+    if processed_val_data:
         dataset_dict["validation"] = Dataset.from_list(processed_val_data)
+        print(f"✅ Created validation split with {len(processed_val_data)} examples")
     else:
-        print(f"Warning: {val_file} not found")
+        print(f"⚠️  Warning: No validation data found")
     
-    # Load test split if it exists
-    if test_file.exists():
-        test_data = load_jsonl_file(test_file)
-        processed_test_data = process_data_for_upload(test_data)
+    if processed_test_data:
         dataset_dict["test"] = Dataset.from_list(processed_test_data)
+        print(f"✅ Created test split with {len(processed_test_data)} examples")
     else:
-        print(f"Warning: {test_file} not found")
+        print(f"⚠️  Warning: No test data found")
     
     # Check if we have any data
     if not dataset_dict:
         raise ValueError(f"No valid JSONL files found in {folder_path}")
+    
+    # Print schema info for verification
+    if dataset_dict:
+        first_split = list(dataset_dict.values())[0]
+        print(f"📋 Schema info: {len(first_split.column_names)} columns")
+        print(f"🔢 Response columns: {sum(1 for col in first_split.column_names if col.startswith('response_'))}")
     
     return DatasetDict(dataset_dict)
 

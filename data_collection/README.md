@@ -145,13 +145,92 @@ python -m data_collection.run_inference \
   --output_file previous_results.jsonl
 ```
 
-#### Extracting Answers:
+#### Extracting Answers
 
-After collecting responses, extract structured answers:
+Process a single result file:
+```bash
+python -m data_collection.answer_extraction --input inference_results/model_name_5problems_3k_1234567890.jsonl
+```
+
+Process all result files in a directory:
+```bash
+python -m data_collection.answer_extraction --input inference_results --output processed_results
+```
+
+#### LLM Judge Enhancement
+
+The answer extraction now includes an **LLM Judge fallback** using Gemini 2.0 Flash with structured output. This feature automatically activates when:
+
+1. **Regex extraction fails** (no answer found in formatted output)
+2. **Regex extraction succeeds but verification fails** (answer doesn't match the ground truth)
+
+**Key Benefits:**
+- **Improved Accuracy**: LLM judge can understand complex answer formats and reasoning
+- **Structured Output**: Uses Pydantic models for reliable answer extraction
+- **Method Tracking**: Each response is tagged with the extraction method used
+- **Fallback Safety**: Falls back to regex if LLM judge fails
+- **Parallel Processing**: LLM judge calls run in parallel for maximum efficiency
+
+**Parallelization Control:**
+- `--batch-size`: Number of LLM judge tasks per batch (default: 20)
+- `--max-workers`: Concurrent API calls per batch (default: 10)
 
 ```bash
-python -m data_collection.answer_extraction --input results.jsonl
+# High throughput (increase parallelization)
+python -m data_collection.answer_extraction --input results.jsonl --batch-size 50 --max-workers 20
+
+# Conservative (reduce API load)
+python -m data_collection.answer_extraction --input results.jsonl --batch-size 10 --max-workers 5
+
+# Disable LLM judge entirely
+python -m data_collection.answer_extraction --input results.jsonl --no-llm-judge
 ```
+
+**Three-Phase Processing:**
+1. **Phase 1**: Fast math verification using regex + math_verify (sequential)
+2. **Phase 2**: Parallel LLM judge processing for failed cases (controlled concurrency)
+3. **Phase 3**: Result combination and output
+
+**Enable/Disable LLM Judge:**
+```bash
+# Enable LLM judge (default behavior)
+python -m data_collection.answer_extraction --input results.jsonl
+
+# Disable LLM judge (regex only)
+python -m data_collection.answer_extraction --input results.jsonl --no-llm-judge
+
+# Show extraction method breakdown
+python -m data_collection.answer_extraction --input results.jsonl --show-extraction-methods
+```
+
+**Environment Setup:**
+The LLM judge requires a Gemini API key:
+```bash
+export GEMINI_API_KEY="your_api_key_here"
+```
+
+**Output Format with LLM Judge:**
+```json
+{
+  "full_response": "Model's full response",
+  "extracted_answer": "\\boxed{42}",
+  "is_correct": true,
+  "extraction_method": "llm_judge",
+  "judge_explanation": "The answer \\boxed{42} correctly solves the equation."
+}
+```
+
+**Extraction Methods:**
+- `math_verify`: Used regex extraction + math verification (both success and failure cases)
+- `llm_judge`: Used LLM judge for extraction and verification
+- `regex_fallback`: LLM judge failed, fell back to regex result
+
+Options:
+- `--input`, `-i`: Input JSONL file or directory to process (required)
+- `--output`, `-o`: Output file or directory for processed results (optional)
+- `--by-category`: Show results broken down by category
+- `--no-llm-judge`: Disable LLM judge fallback (use only regex extraction)
+- `--show-extraction-methods`: Show results broken down by extraction method
 
 ## Setup
 
@@ -399,23 +478,6 @@ python -m data_collection.run_inference --output_file "my_results.jsonl"
 ```
 
 The script will automatically detect how many problems have already been processed and continue from where it left off.
-
-### Extract and Evaluate Answers
-
-Process a single result file:
-```bash
-python -m data_collection.answer_extraction --input inference_results/model_name_5problems_3k_1234567890.jsonl
-```
-
-Process all result files in a directory:
-```bash
-python -m data_collection.answer_extraction --input inference_results --output processed_results
-```
-
-Options:
-- `--input`, `-i`: Input JSONL file or directory to process (required)
-- `--output`, `-o`: Output file or directory for processed results (optional)
-- `--by-category`: Show results broken down by category
 
 ## Output Format
 

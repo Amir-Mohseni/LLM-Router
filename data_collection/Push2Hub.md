@@ -79,13 +79,24 @@ The script processes the input data to make it more analysis-friendly. For each 
    - `response_1`, `response_2`, ...: Full text of each response
    - `extracted_answer_1`, `extracted_answer_2`, ...: Extracted answers (if available)
    - `is_correct_1`, `is_correct_2`, ...: Boolean indicating correctness of each response
+   - `extraction_method_1`, `extraction_method_2`, ...: Method used for answer extraction (`math_verify`, `llm_judge`, or `regex_fallback`)
+   - `judge_explanation_1`, `judge_explanation_2`, ...: LLM judge explanation (when LLM judge was used)
 
 3. **Summary Statistics**: Additional columns to track performance
    - `total_responses`: Total number of responses for this question
    - `correct_responses`: Number of correct responses
    - `accuracy`: Ratio of correct responses (correct_responses / total_responses)
 
-This format makes it easy to analyze model performance question by question.
+4. **Extraction Method Analytics**: Breakdown by extraction method
+   - `extraction_method_counts`: Dictionary with counts for each extraction method
+   - `math_verify_count`: Number of responses using math verification
+   - `llm_judge_count`: Number of responses using LLM judge
+   - `regex_fallback_count`: Number of responses using regex fallback
+   - `math_verify_accuracy`: Accuracy for responses using math verification
+   - `llm_judge_accuracy`: Accuracy for responses using LLM judge  
+   - `regex_fallback_accuracy`: Accuracy for responses using regex fallback
+
+This format makes it easy to analyze model performance question by question and compare the effectiveness of different answer extraction methods.
 
 ## Advanced Options for Running Large Models
 
@@ -170,4 +181,40 @@ print(f"Questions with 100% accuracy: {len(perfect_questions)}")
 # Find questions with 0% accuracy
 failed_questions = [ex for ex in dataset["test"] if ex['accuracy'] == 0.0]
 print(f"Questions with 0% accuracy: {len(failed_questions)}")
+
+# Analyze extraction method effectiveness
+total_math_verify = sum(example['math_verify_count'] for example in dataset["test"])
+total_llm_judge = sum(example['llm_judge_count'] for example in dataset["test"])
+total_regex_fallback = sum(example['regex_fallback_count'] for example in dataset["test"])
+
+print(f"\nExtraction Method Usage:")
+print(f"Math Verify: {total_math_verify} responses")
+print(f"LLM Judge: {total_llm_judge} responses")
+print(f"Regex Fallback: {total_regex_fallback} responses")
+
+# Calculate accuracy by extraction method
+math_verify_total_accuracy = sum(example['math_verify_accuracy'] * example['math_verify_count'] 
+                                for example in dataset["test"])
+math_verify_avg_accuracy = math_verify_total_accuracy / total_math_verify if total_math_verify > 0 else 0
+
+llm_judge_total_accuracy = sum(example['llm_judge_accuracy'] * example['llm_judge_count'] 
+                              for example in dataset["test"])
+llm_judge_avg_accuracy = llm_judge_total_accuracy / total_llm_judge if total_llm_judge > 0 else 0
+
+print(f"\nExtraction Method Accuracy:")
+print(f"Math Verify: {math_verify_avg_accuracy:.2%}")
+print(f"LLM Judge: {llm_judge_avg_accuracy:.2%}")
+
+# Find questions where LLM judge was most helpful
+llm_judge_questions = [ex for ex in dataset["test"] if ex['llm_judge_count'] > 0]
+print(f"\nQuestions using LLM judge: {len(llm_judge_questions)}")
+
+# Analyze LLM judge explanations
+for example in dataset["test"][:3]:  # First 3 examples
+    if example['llm_judge_count'] > 0:
+        print(f"\nQuestion: {example['problem'][:100]}...")
+        for i in range(1, example['total_responses'] + 1):
+            if f'extraction_method_{i}' in example and example[f'extraction_method_{i}'] == 'llm_judge':
+                explanation = example.get(f'judge_explanation_{i}', 'No explanation')
+                print(f"  Response {i} (LLM Judge): {explanation[:200]}...")
 ``` 
