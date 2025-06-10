@@ -10,73 +10,86 @@
 4. *BERT-based router training for automated model selection*
 
 ### Project Description
-This project implements an intelligent routing system for Large Language Models (LLMs) that optimizes for cost while maintaining answer quality. The system uses a BERT-based router trained on historical performance data to direct queries to the most cost-effective LLM capable of answering the query correctly.
+This project implements an intelligent routing system for Large Language Models (LLMs) that optimizes for cost while maintaining answer quality. The system uses a trained router to direct queries to the most cost-effective LLM capable of answering the query correctly, comparing thinking vs non-thinking models across different complexity levels.
+
+### Final Model Evaluation Setup
+
+Based on our research, we evaluated the following models in our final experiments:
+
+#### 🧠 Thinking Models (Advanced Reasoning)
+- **Google Gemini 2.5 Pro**: State-of-the-art reasoning with explicit step-by-step thinking
+- **Qwen 3 14B**: High-performance thinking model with detailed problem-solving approach
+
+#### ⚡ Non-Thinking Models (Direct Response)
+- **Google Gemini 2.0 Flash**: Ultra-fast responses optimized for efficiency
+- **Gemma 3 4B**: Lightweight model optimized for quick inference
+
+#### 🎯 Intelligent Router
+- **Custom Router**: Trained on Qwen 3 1.7B performance data with RouteLLM integration for automatic model selection
+
+This setup allows us to:
+- Compare thinking vs non-thinking capabilities across different model sizes
+- Evaluate cost-performance trade-offs between advanced and efficient models
+- Test automated routing decisions for optimal model selection
 
 ### Architecture
 The system uses a polymorphic design with:
 
 1. **BaseLLM** - Abstract base class with common LLM functionality
-2. **RemoteLLM** - Concrete implementation for API-based models (OpenAI, etc.)
+2. **RemoteLLM** - Concrete implementation for API-based models (OpenAI, Google, etc.)
 3. **LocalLLM** - Concrete implementation for local models (vLLM server)
-4. **Factory Function** - `create_llm()` that instantiates the appropriate LLM type
+4. **RouteLLMClassifier** - Intelligent routing system using trained classifiers
+5. **Factory Function** - `create_llm()` that instantiates the appropriate LLM type
 
 This architecture enables:
 - Automatic parameter compatibility handling between model types
 - Support for both local and remote models through a unified interface
+- Intelligent routing based on query complexity and model capabilities
 - Clean separation between model types while sharing common functionality
 
 ### Implementation Steps
 
-1. **Initial Query Distribution**
-   - Send the same query to multiple LLMs (e.g., GPT-4o, o1, Deepseek R1, Deepseek V3, Llama 3 8B, Qwen 2.5 7B)
-   - Collect and store responses from each model
+1. **Multi-Model Query Distribution**
+   - Send queries to multiple LLMs with different thinking capabilities
+   - Collect responses from both thinking and non-thinking models
+   - Store detailed performance and cost metrics
 
-2. **Answer Quality Assessment**
-   - Implement a Judge LLM system
-   - Create a database of predefined correct answers
-   - Evaluate each model's response with binary classification (Can Answer? Yes/No)
-   - Filter out models that provide incorrect or nonsensical answers
+2. **Router Training and Integration**
+   - Train router using Qwen 3 1.7B performance data as baseline
+   - Integrate with RouteLLM framework for automated model selection
+   - Enable automatic strong/weak model routing based on query complexity
 
-3. **Cost Optimization**
-   - Among models that can answer correctly, identify the cheapest viable option
-   - Create training pairs of [Query, Cheapest Viable LLM]
-   - Build a dataset for router training
+3. **Thinking vs Non-Thinking Analysis**
+   - Compare reasoning quality between thinking and direct response models
+   - Analyze cost-performance trade-offs across different model capabilities
+   - Evaluate when explicit reasoning steps improve answer quality
 
-4. **Router Implementation**
-   - Start with an untrained BERT model
-   - Fine-tune BERT to predict the optimal (Query, Cheapest Viable LLM) pairs
-   - Deploy the trained model as the main router
+4. **Performance Optimization**
+   - Identify optimal routing thresholds for different query types
+   - Minimize costs while maintaining answer quality standards
+   - Create training datasets for continuous router improvement
 
 ### Key Components
 1. **Multi-Model Query System**
-   - Interface with multiple LLM APIs
-   - Parallel query processing
-   - Response collection and storage
+   - Interface with Google Gemini, Qwen, Gemma, and other model APIs
+   - Parallel query processing with thinking/non-thinking modes
+   - Response collection and performance tracking
 
-2. **Evaluation System**
-   - Judge LLM implementation
-   - Answer validation framework
-   - Performance tracking
+2. **RouteLLM Integration**
+   - Pre-trained routing models for query classification
+   - Cost-aware model selection capabilities
+   - Configurable routing thresholds and model pairs
 
-3. **Router Training Pipeline**
-   - Data collection and preprocessing
-   - BERT fine-tuning system
-   - Model evaluation and validation
-
-### Technologies
-- Python 3.10+
-- LangChain
-- vLLM for local model serving
-- Various LLM APIs (OpenAI, etc.)
-- Hugging Face Transformers
-- Database for storing results and training data
+3. **Evaluation Framework**
+   - Comprehensive comparison of thinking vs non-thinking approaches
+   - Cost-performance analysis across different model sizes
+   - Quality assessment for various query complexity levels
 
 ### Getting Started
 
 #### Prerequisites
 - Python 3.10+
 - Docker (optional, for containerized setup)
-- GPU (recommended for local model serving)
 
 #### Installation
 1. Clone the repository:
@@ -144,13 +157,20 @@ A Gradio-based chat application that intelligently routes user queries to differ
 - **Model Selection**: Choose models manually or let the router decide
 - **Polymorphic Architecture**: Support for both remote API models and local vLLM models
 
-## 🤖 Supported Models
+## 🤖 Final Evaluated Models
 
-The application currently integrates with:
+The research project evaluated the following models in the final experiments:
 
-- **Google/Gemma-3-27b-it**: Google's powerful instruction-tuned model with 27B parameters
-- **Meta-llama/Llama-3.2-1B-Instruct**: Meta's efficient instruction-tuned model with 1B parameters
-- **Deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B**: Deepseek's powerful thinking and reasoning model with 1.5B parameters
+### 🧠 Thinking Models (Advanced Reasoning)
+- **Google Gemini 2.5 Pro**: State-of-the-art reasoning with explicit step-by-step thinking
+- **Qwen 3 14B**: High-performance open-source model with detailed problem-solving capabilities
+
+### ⚡ Non-Thinking Models (Direct Response)  
+- **Google Gemini 2.0 Flash**: Ultra-fast responses optimized for efficiency
+- **Gemma 3 4B**: Lightweight Google model for quick inference
+
+### 🎯 Intelligent Router
+- **Custom Router**: Trained on Qwen 3 1.7B performance data with RouteLLM integration
 
 ## 🛠️ Installation
 
@@ -204,27 +224,47 @@ Then open your browser at the URL displayed in the terminal (typically http://12
 
 ## 🧠 How the Router Works
 
-The router analyzes user messages to determine the most appropriate model:
+The custom router was trained on Qwen 3 1.7B performance data and integrated with RouteLLM framework:
 
-- **Creative Content**: For stories, poems, or creative writing → Gemma 27B
-- **Complex Questions**: For explanations, analyses, or technical content → Gemma 27B
-- **Simple Queries**: For straightforward questions or chat → Llama 3 8B
+### Routing Logic:
+- **Complex/Technical Queries**: Routes to thinking models (Gemini 2.5 Pro, Qwen 3 14B)
+- **Simple/Direct Questions**: Routes to non-thinking models (Gemini 2.0 Flash, Gemma 3 4B)
+- **Confidence-Based**: Uses configurable thresholds to balance cost vs. quality
+
+### Usage Example:
+```python
+from RouteLLM.route_llm_classifier import RouteLLMClassifier
+
+router = RouteLLMClassifier(
+    strong_model='google/gemini-2.5-pro-preview',
+    weak_model='google/gemini-2.0-flash-001',
+    threshold=0.5,
+    router_type="bert"
+)
+
+# Get routing decision
+decision = router.predict_class("Solve this complex math problem...")
+# Returns: "strong" or "weak"
+```
 
 ## 🔧 Customization
 
-### Adding New Models
+### Configuring Model Pairs
 
-To add a new model, update the `models` dictionary in `router.py`:
+To use different model pairs with the router, initialize the `RouteLLMClassifier`:
 
 ```python
-self.models = {
-   "google/gemma-3-27b-it": "Gemma 3 27B",
-   "meta-llama/Llama-3.2-1B-Instruct": "Llama 3.2 1B",
-   "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B": "Distill R1 1.5B",
-}
+router = RouteLLMClassifier(
+    strong_model='google/gemini-2.5-pro-preview',  # Thinking model
+    weak_model='google/gemini-2.0-flash-001',      # Non-thinking model
+    threshold=0.5,                                 # Routing threshold
+    router_type="bert"                             # Router type
+)
 ```
 
-Then update the routing logic in the `select_model` method.
+### Available Model Configurations:
+- **Strong Models**: Gemini 2.5 Pro, Qwen 3 14B (thinking capabilities)
+- **Weak Models**: Gemini 2.0 Flash, Gemma 3 4B (direct response)
 
 ### Modifying the Interface
 
