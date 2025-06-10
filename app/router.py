@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from .classifier import Classifier
+from .multitask_router import MultiTaskRouter
 from .config import get_config
 
 
@@ -34,6 +35,11 @@ class ModelRouter:
                 "provider": "openrouter",
                 "supports_reasoning": False
             },
+            "google/gemma-3-4b-it": {
+                "display_name": "Gemma 3 4B",
+                "provider": "openrouter",
+                "supports_reasoning": True
+            },
             "qwen/qwen3-14b": {
                 "display_name": "Qwen 3 14B",
                 "provider": "openrouter",
@@ -50,7 +56,8 @@ class ModelRouter:
                 "supports_reasoning": False
             },
         }
-        self.classifier = Classifier(model_name='AmirMohseni/BERT-Router-base')
+        #self.router = Classifier(model_name='AmirMohseni/BERT-Router-base')
+        self.router = MultiTaskRouter(base_model_name='Qwen/Qwen3-1.7B', router_model_name='AmirMohseni/LLM-Router-v2')
     
     def select_model(self, message, history):
         """
@@ -58,18 +65,24 @@ class ModelRouter:
         
         Args:
             message (str): The user's current message
+            history (list): The conversation history [CURRENTLY IGNORED]
         Returns:
             str: The model key to use
         """        
-        # Classify the message (small_llm, large_llm)
-        model_type = self.classifier.classify(message)
         
-        if model_type == 'large_llm':
-            return 'google/gemini-2.5-flash-preview'  # Large powerful model
-        elif model_type == 'small_llm':
-            return 'google/gemini-2.0-flash-001'    # Smaller, faster model
-        else:
-            raise ValueError(f"Invalid model type: {model_type}")
+        if isinstance(self.router, Classifier):
+            # Classify the message (small_llm, large_llm)
+            model_type = self.router.classify(message)
+            
+            if model_type == 'large_llm':
+                return 'google/gemini-2.5-flash-preview'  # Large powerful model
+            elif model_type == 'small_llm':
+                return 'google/gemini-2.0-flash-001'    # Smaller, faster model
+            else:
+                raise ValueError(f"Invalid model type: {model_type}")
+        elif isinstance(self.router, MultiTaskRouter):
+            response = self.router.route(message, reasoning_threshold=0.4, difficulty_threshold=0.5)
+            return response['selected_model']
         
     def get_model_display_name(self, model_key):
         """Get the display name for a model key"""
