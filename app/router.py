@@ -81,7 +81,7 @@ class ModelRouter:
             else:
                 raise ValueError(f"Invalid model type: {model_type}")
         elif isinstance(self.router, MultiTaskRouter):
-            response = self.router.route(message, reasoning_threshold=0.4, difficulty_threshold=0.5)
+            response = self.router.route(message, reasoning_threshold=0.5, difficulty_threshold=0.5)
             return response['selected_model']
         
     def get_model_display_name(self, model_key):

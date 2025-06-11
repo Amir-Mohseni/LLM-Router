@@ -305,12 +305,8 @@ class LLMHandler:
                 # Check if the auto-selected model supports reasoning
                 supports_reasoning = self.router.model_supports_reasoning(model_key)
                 
-                # First yield the model info with reasoning support flag
+                # First yield the model info - don't pre-show reasoning UI
                 initial_response = {"content": model_info}
-                if supports_reasoning:
-                    initial_response["has_reasoning"] = True
-                    initial_response["reasoning"] = "🧠 Initializing thinking process...\n\n"
-                    
                 yield initial_response
             else:
                 # Convert display name back to model key
@@ -332,19 +328,9 @@ class LLMHandler:
             print(f"[DEBUG] Model {model_key} reasoning support: {supports_reasoning}")
             
             # Set up initial reasoning state (will be updated if we detect reasoning in the stream)
-            has_reasoning = supports_reasoning
+            has_reasoning = False  # Only set to True when we actually receive reasoning content
             
-            # If we're in manual mode and the model supports reasoning, send an initial response
-            if model_selection != "automatic" and supports_reasoning:
-                print(f"[DEBUG] Model supports reasoning according to configuration, indicating in response")
-                # Return an initial message indicating reasoning is available 
-                # This will create the thinking message placeholder in the UI
-                initial_response = {
-                    "content": "", 
-                    "has_reasoning": True, 
-                    "reasoning": "🧠 Initializing thinking process...\n\n"
-                }
-                yield initial_response
+            # Don't pre-show reasoning UI - wait for actual reasoning content from API
             
             # Call the model with streaming enabled using the appropriate provider
             stream = self.call_model(
