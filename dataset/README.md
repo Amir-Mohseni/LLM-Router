@@ -16,7 +16,7 @@ Intended to be stored in jsonl.
 
 ```
 project-root/
-├── converters/               # Dataset conversion scripts
+├── converters/               # Scripts that download the datasets into data/raw (if not already present) and then convert them to our format
 │   ├── math_500.py           # The math 500 dataset
 │   ├── mmlu_pro.py           # The mmlu pro dataset 
 │   └── ...                   # Additional datasets
