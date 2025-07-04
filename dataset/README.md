@@ -14,6 +14,7 @@ Intended to be stored in jsonl.
 
 # Intended Structure
 
+```
 project-root/
 ├── converters/               # Dataset conversion scripts
 │   ├── math_500.py           # The math 500 dataset
@@ -29,3 +30,4 @@ project-root/
 ├── utils.py                  # All utilities (single file)
 ├── requirements.txt          # Dependencies
 └── README.md                 # Documentation
+```
