@@ -53,9 +53,10 @@ field_rules = {
 }
 
 # Validate the dataset
-utils.validate_dataset(records, field_rules)
+report, num_violations = utils.validate_dataset(records, field_rules)
+print(report)
 
 print("\n" + "="*50)
 print(f"Successfully converted {count} examples and saved to {output_file}")
-print("Validation report above")
+print(f"Found {num_violations} rule violations during validation")
 print("="*50)

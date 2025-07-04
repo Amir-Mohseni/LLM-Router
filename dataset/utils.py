@@ -20,10 +20,19 @@ def is_null_like(value):
         return True
     return False
 
-def validate_dataset(records, field_rules):
-    """Validate dataset records against field rules and report statistics."""
-    print("\nValidating dataset...")
-    print("="*50)
+def validate_dataset(records, field_rules) -> (str, int):
+    """Validate dataset records against field rules and return a report and violation count.
+    
+    Returns:
+        str: The validation report
+        int: Number of rule violations found
+    """
+    # We'll collect the report lines and count violations
+    report_lines = []
+    total_violations = 0
+    
+    report_lines.append("\nValidating dataset...")
+    report_lines.append("="*50)
     
     # Collect statistics per field
     stats = {}
@@ -51,11 +60,23 @@ def validate_dataset(records, field_rules):
             'distinct_duplicate_values': distinct_duplicate_values
         }
     
-    # Print report
+    # Build report and check for rule violations
     for field, stat in stats.items():
         rules = field_rules[field]
-        print(f"Field: {field}")
-        print(f"  Null-like values: {stat['null_like_count']} (allowed: {rules.get('allow_null', True)})")
-        print(f"  Duplicate values: {stat['duplicate_count']} records (distinct: {stat['distinct_duplicate_values']}) (allowed: {rules.get('allow_duplicates', True)})")
+        report_lines.append(f"Field: {field}")
+        report_lines.append(f"  Null-like values: {stat['null_like_count']} (allowed: {rules.get('allow_null', True)})")
+        report_lines.append(f"  Duplicate values: {stat['duplicate_count']} records (distinct: {stat['distinct_duplicate_values']}) (allowed: {rules.get('allow_duplicates', True)})")
+        
+        # Count violations per field
+        allow_null = rules.get('allow_null', True)
+        allow_dups = rules.get('allow_duplicates', True)
+        
+        if not allow_null and stat['null_like_count'] > 0:
+            total_violations += 1
+        if not allow_dups and stat['distinct_duplicate_values'] > 0:
+            total_violations += 1
     
-    print("="*50)
+    report_lines.append("="*50)
+    report = "\n".join(report_lines)
+    
+    return report, total_violations
