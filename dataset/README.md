@@ -12,12 +12,12 @@ Intended to be stored in jsonl.
 | `explanation_correct`  | `string` \| `null`           | Explanation or worked solution. Use `null` if no explanation is available.                                             |
 | `answer_correct`       | `string`                     | The final correct answer. For multiple-choice questions, this must equal the value of `choices[choice_index_correct]`. |
 
-# Structure
+# Intended Structure
 
 project-root/
 ├── converters/               # Dataset conversion scripts
-│   ├── squad.py              # Hugging Face dataset converter (example)
-│   ├── custom_source.py      # Non-HF dataset converter (example)
+│   ├── math_500.py           # The math 500 dataset
+│   ├── mmlu_pro.py           # The mmlu pro dataset 
 │   └── ...                   # Additional datasets
 ├── data/                     # All data
 │   ├── raw/                  # Original datasets
