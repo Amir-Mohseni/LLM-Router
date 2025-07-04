@@ -16,12 +16,11 @@ Intended to be stored in jsonl.
 
 ```
 project-root/
-├── converters/               # Scripts that download the datasets into data/raw (if not already present) and then convert them to our format
+├── converters/               # Scripts that download the datasets and then convert them to our format and save in data/converted
 │   ├── math_500.py           # The math 500 dataset
 │   ├── mmlu_pro.py           # The mmlu pro dataset 
 │   └── ...                   # Additional datasets
 ├── data/                     # All data
-│   ├── raw/                  # Original datasets
 │   ├── converted/            # Standardized JSONL
 │   └── combined.jsonl        # Final deduplicated dataset
 ├── scripts/                  # Management scripts
