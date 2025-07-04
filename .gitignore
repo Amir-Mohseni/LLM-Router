@@ -10,4 +10,6 @@ TODO.txt
 data_collection/inference_results/*
 data_collection/extracted_answers/*
 
+dataset/data/*.jsonl
+
 .aider*
