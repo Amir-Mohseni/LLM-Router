@@ -37,10 +37,6 @@ with open(output_file, 'w', encoding='utf-8') as fout:
         
         fout.write(json.dumps(record) + '\n')
         count += 1
-        
-        # Print progress every 50 examples
-        if count % 50 == 0:
-            print(f"Converted {count} examples...")
 
 print("\n" + "="*50)
 print(f"Successfully converted {count} examples and saved to {output_file}")
