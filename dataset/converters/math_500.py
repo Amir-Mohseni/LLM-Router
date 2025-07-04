@@ -48,7 +48,7 @@ field_rules = {
     "question": {"allow_duplicates": False, "allow_null": False},
     "choices": {"allow_duplicates": True, "allow_null": True},
     "choice_index_correct": {"allow_duplicates": True, "allow_null": True},
-    "explanation_c    "explanation_correct": {"allow_duplicates": True, "allow_null": False},
+    "explanation_correct": {"allow_duplicates": True, "allow_null": False},
     "answer_correct": {"allow_duplicates": True, "allow_null": False}
 }
 
