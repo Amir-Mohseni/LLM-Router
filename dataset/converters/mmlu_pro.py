@@ -56,7 +56,7 @@ with open(output_file, 'w', encoding='utf-8') as fout:
 field_rules = {
     "unique_id": {"allow_duplicates": False, "allow_null": False},
     "original_dataset": {"allow_duplicates": True, "allow_null": False},
-    "question": {"allow_duplicates": False, "allow_null": False},
+    "question": {"allow_duplicates": True, "allow_null": False},
     "choices": {"allow_duplicates": True, "allow_null": False},
     "choice_index_correct": {"allow_duplicates": True, "allow_null": False},
     "explanation_correct": {"allow_duplicates": True, "allow_null": True},
