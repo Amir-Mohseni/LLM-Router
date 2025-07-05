@@ -30,6 +30,7 @@ def validate_dataset(records, field_rules) -> (str, int):
     # We'll collect the report lines and count violations
     report_lines = []
     total_violations = 0
+    violation_details = []  # To collect specific violation messages
     
     report_lines.append("\nValidating dataset...")
     report_lines.append("="*50)
@@ -64,19 +65,48 @@ def validate_dataset(records, field_rules) -> (str, int):
     for field, stat in stats.items():
         rules = field_rules[field]
         report_lines.append(f"Field: {field}")
-        report_lines.append(f"  Null-like values: {stat['null_like_count']} (allowed: {rules.get('allow_null', True)})")
-        report_lines.append(f"  Duplicate values: {stat['duplicate_count']} records (distinct: {stat['distinct_duplicate_values']}) (allowed: {rules.get('allow_duplicates', True)})")
         
-        # Count violations per field
         allow_null = rules.get('allow_null', True)
         allow_dups = rules.get('allow_duplicates', True)
         
-        if not allow_null and stat['null_like_count'] > 0:
-            total_violations += 1
-        if not allow_dups and stat['distinct_duplicate_values'] > 0:
-            total_violations += 1
+        # Check for null violations
+        null_violation = not allow_null and stat['null_like_count'] > 0
+        report_lines.append(
+            f"  Null-like values: {stat['null_like_count']} (allowed: {allow_null})" + 
+            ("   <<< VIOLATION!" if null_violation else "")
+        )
+        
+        # Check for duplicate violations
+        dup_violation = not allow_dups and stat['distinct_duplicate_values'] > 0
+        report_lines.append(
+            f"  Duplicate values: {stat['duplicate_count']} records (distinct: {stat['distinct_duplicate_values']}) (allowed: {allow_dups})" + 
+            ("   <<< VIOLATION!" if dup_violation else "")
+        )
+        
+        # Collect violation details
+        if null_violation:
+            violation_details.append(
+                f"Field '{field}' has {stat['null_like_count']} null-like values (not allowed)"
+            )
+        if dup_violation:
+            violation_details.append(
+                f"Field '{field}' has {stat['distinct_duplicate_values']} distinct duplicate values (not allowed)"
+            )
+        
+        # Count violations
+        total_violations += int(null_violation) + int(dup_violation)
     
     report_lines.append("="*50)
-    report = "\n".join(report_lines)
     
+    # Include dedicated violations section if any were found
+    if violation_details:
+        report_lines.append("\n!!! VALIDATION VIOLATIONS DETECTED !!!")
+        report_lines.append("-"*50)
+        for i, violation in enumerate(violation_details, 1):
+            report_lines.append(f"[VIOLATION {i}] {violation}")
+        report_lines.append("-"*50)
+    else:
+        report_lines.append("\nNo validation violations detected")
+    
+    report = "\n".join(report_lines)
     return report, total_violations
