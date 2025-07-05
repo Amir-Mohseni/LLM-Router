@@ -21,8 +21,8 @@ print(f"Will write converted data to {output_file}")
 
 records = []
 for example in ds[split]:
-    # Convert to our format, including only standard fields
-    record = {
+    # Create a temporary record without unique_id for hash computation
+    temp_record = {
         "original_dataset": "math_500",
         "question": example['problem'],
         "choices": None,
@@ -30,9 +30,18 @@ for example in ds[split]:
         "explanation_correct": example['solution'],
         "answer_correct": example['answer']
     }
-    # Compute unique_id from the standard fields
-    unique_id = utils.compute_unique_id(record)
-    record['unique_id'] = unique_id
+    # Compute unique_id from the temporary record
+    unique_id = utils.compute_unique_id(temp_record)
+    # Create final record with unique_id first
+    record = {
+        "unique_id": unique_id,
+        "original_dataset": temp_record["original_dataset"],
+        "question": temp_record["question"],
+        "choices": temp_record["choices"],
+        "choice_index_correct": temp_record["choice_index_correct"],
+        "explanation_correct": temp_record["explanation_correct"],
+        "answer_correct": temp_record["answer_correct"]
+    }
     records.append(record)
 
 # Write the file
