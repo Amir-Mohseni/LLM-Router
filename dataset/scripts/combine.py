@@ -68,12 +68,11 @@ def main():
     }
     report, violations = validate_dataset(records, field_rules)
     
-    # Write the report to a file
-    report_path = os.path.join(output_dir, 'validation_report.txt')
-    with open(report_path, 'w', encoding='utf-8') as f:
-        f.write(report)
-    
-    print(f"Validation report written to: {report_path}")
+    # Print validation report
+    print("\nValidation Report:")
+    print("=" * 50)
+    print(report)
+    print("=" * 50)
     print(f"Total rule violations: {violations}")
 
 if __name__ == '__main__':
