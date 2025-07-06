@@ -11,22 +11,3 @@ Intended to be stored in jsonl.
 | `choice_index_correct` | `integer` \| `null`          | Index of the correct choice (0-based). Use `null` for open-ended questions.                                            |
 | `explanation_correct`  | `string` \| `null`           | Explanation or worked solution. Use `null` if no explanation is available.                                             |
 | `answer_correct`       | `string`                     | The final correct answer. For multiple-choice questions, this must equal the value of `choices[choice_index_correct]`. |
-
-# Intended Structure
-
-```
-project-root/
-├── converters/               # Scripts that download the datasets and then convert them to our format and save in data/converted
-│   ├── math_500.py           # The math 500 dataset
-│   ├── mmlu_pro.py           # The mmlu pro dataset 
-│   └── ...                   # Additional datasets
-├── data/                     # All data
-│   ├── converted/            # Standardized JSONL
-│   └── combined.jsonl        # Final deduplicated dataset
-├── scripts/                  # Management scripts
-│   ├── convert_all.py        # Run all converters
-│   └── combine.py            # Merge datasets
-├── utils.py                  # All utilities (single file)
-├── requirements.txt          # Dependencies
-└── README.md                 # Documentation
-```
