@@ -4,11 +4,16 @@ import json
 def main():
     # Get the script directory and build the converted data path
     script_dir = os.path.dirname(__file__)
-    converted_dir = os.path.join(script_dir, '..', '..', 'data', 'converted')
+    converted_dir = os.path.join(script_dir, '..', 'data', 'converted')
     converted_dir = os.path.abspath(converted_dir)
     
+    if not os.path.exists(converted_dir):
+        print(f"Error: Converted data directory not found at {converted_dir}")
+        print("Make sure to run the dataset converters first")
+        return
+    
     # Prepare the output file path
-    output_dir = os.path.join(script_dir, '..', '..', 'data')
+    output_dir = os.path.join(script_dir, '..', 'data')
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, 'combined.jsonl')
     
