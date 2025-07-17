@@ -4,6 +4,7 @@ LLM abstraction layer that provides a unified interface for language models.
 This module provides:
 1. Standard text-based LLM interactions
 2. Structured output generation from LLMs
+3. Vision capabilities with image inputs
 
 It uses LangChain under the hood but provides a simplified interface.
 """
@@ -11,14 +12,20 @@ It uses LangChain under the hood but provides a simplified interface.
 import os
 import json
 import logging
+import base64
+import requests
 from typing import Any, Dict, List, Optional, Type, Union, TypeVar
 from abc import ABC, abstractmethod
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from pathlib import Path
+from io import BytesIO
+from urllib.parse import urlparse
 
 # Import LangChain components
 from langchain_openai import ChatOpenAI
 from langchain_community.llms import VLLMOpenAI
+from langchain_core.messages import HumanMessage
 
 # Load environment variables
 load_dotenv(override=True)
@@ -28,12 +35,109 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, 
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
+# Import PIL for image handling
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    logger.warning("PIL not available. Image functionality will be limited.")
+
 # Define type variable for generic class
 T = TypeVar('T', bound=BaseModel)
 
 # Define parameter sets for different API types
 REMOTE_API_PARAMS = {"temperature", "max_tokens"}
 LOCAL_VLLM_PARAMS = {"stop", "temperature", "max_tokens", "repetition_penalty", "min_tokens"}
+
+
+def _is_url(string: str) -> bool:
+    """Check if a string is a valid URL."""
+    try:
+        result = urlparse(string)
+        return all([result.scheme, result.netloc])
+    except Exception:
+        return False
+
+
+def _process_image(image: Union[str, Path, "Image.Image"]) -> Dict[str, Any]:
+    """
+    Process a single image into the format expected by LangChain.
+    
+    Args:
+        image: Image as file path, Path object, URL string, or PIL Image
+        
+    Returns:
+        Dict containing the image data in LangChain format
+    """
+    if isinstance(image, str) and _is_url(image):
+        # Handle URL case - return URL directly
+        return {
+            "type": "image_url",
+            "image_url": {"url": image}
+        }
+        
+    elif isinstance(image, (str, Path)):
+        # Handle local file case
+        image_path = Path(image)
+        if not image_path.exists():
+            raise FileNotFoundError(f"Image file not found: {image_path}")
+            
+        ext = image_path.suffix.lower()
+        mime_type = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg", 
+            ".png": "image/png",
+            ".webp": "image/webp",
+            ".gif": "image/gif",
+            ".bmp": "image/bmp"
+        }.get(ext, "image/jpeg")
+        
+        with image_path.open("rb") as f:
+            image_data = base64.b64encode(f.read()).decode("utf-8")
+            
+        return {
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime_type};base64,{image_data}"}
+        }
+            
+    elif PIL_AVAILABLE and isinstance(image, Image.Image):
+        # Default to JPEG encoding for PIL images
+        mime_type = "image/jpeg"
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG")
+        image_data = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        
+        return {
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime_type};base64,{image_data}"}
+        }
+        
+    else:
+        if not PIL_AVAILABLE:
+            raise ImportError("PIL is required for Image.Image objects. Install with: pip install Pillow")
+        raise TypeError("Image must be a file path (str/Path), URL (str), or a PIL.Image.Image object.")
+
+
+def _build_message_content(prompt: str, images: Optional[List[Union[str, Path, "Image.Image"]]] = None) -> List[Dict[str, Any]]:
+    """
+    Build message content with text and optional images.
+    
+    Args:
+        prompt: Text prompt
+        images: Optional list of images (file paths, URLs, Path objects, or PIL Images, can be empty list)
+        
+    Returns:
+        List of content items for LangChain message
+    """
+    content = [{"type": "text", "text": prompt}]
+    
+    if images:
+        for image in images:
+            content.append(_process_image(image))
+            
+    return content
+
 
 class BaseLLM(ABC):
     """Base abstract LLM class that provides a unified interface for language models."""
@@ -65,12 +169,13 @@ class BaseLLM(ABC):
         """Initialize the model - to be implemented by subclasses"""
         pass
     
-    def invoke(self, prompt: str) -> str:
+    def invoke(self, prompt: str, images: Optional[List[Union[str, Path, "Image.Image"]]] = None) -> str:
         """
-        Invoke the model with a text prompt.
+        Invoke the model with a text prompt and optional images.
         
         Args:
             prompt (str): The prompt to send to the model
+            images (List, optional): List of images (file paths, URLs, Path objects, or PIL Images)
             
         Returns:
             str: The model's response
@@ -79,7 +184,15 @@ class BaseLLM(ABC):
             raise ValueError("Model has not been initialized")
             
         try:
-            response = self.model.invoke(prompt)
+            if images:
+                # Use vision-capable message format
+                content = _build_message_content(prompt, images)
+                message = HumanMessage(content=content)
+                response = self.model.invoke([message])
+            else:
+                # Use simple text prompt
+                response = self.model.invoke(prompt)
+                
             if hasattr(response, 'content'):
                 return response.content
             return response
@@ -87,12 +200,13 @@ class BaseLLM(ABC):
             logger.error(f"Error invoking model: {str(e)}")
             raise
     
-    async def ainvoke(self, prompt: str) -> str:
+    async def ainvoke(self, prompt: str, images: Optional[List[Union[str, Path, "Image.Image"]]] = None) -> str:
         """
-        Asynchronously invoke the model with a text prompt.
+        Asynchronously invoke the model with a text prompt and optional images.
         
         Args:
             prompt (str): The prompt to send to the model
+            images (List, optional): List of images (file paths, URLs, Path objects, or PIL Images)
             
         Returns:
             str: The model's response
@@ -101,7 +215,15 @@ class BaseLLM(ABC):
             raise ValueError("Model has not been initialized")
             
         try:
-            response = await self.model.ainvoke(prompt)
+            if images:
+                # Use vision-capable message format
+                content = _build_message_content(prompt, images)
+                message = HumanMessage(content=content)
+                response = await self.model.ainvoke([message])
+            else:
+                # Use simple text prompt
+                response = await self.model.ainvoke(prompt)
+                
             if hasattr(response, 'content'):
                 return response.content
             return response
@@ -109,13 +231,14 @@ class BaseLLM(ABC):
             logger.error(f"Error in async invocation: {str(e)}")
             raise
             
-    def invoke_structured(self, prompt: str, output_schema: Type[T]) -> T:
+    def invoke_structured(self, prompt: str, output_schema: Type[T], images: Optional[List[Union[str, Path, "Image.Image"]]] = None) -> T:
         """
-        Invoke the model with structured output.
+        Invoke the model with structured output and optional images.
         
         Args:
             prompt: The prompt to send to the model
             output_schema: Pydantic model class for structured output
+            images (List, optional): List of images (file paths, URLs, Path objects, or PIL Images)
             
         Returns:
             An instance of the output_schema class
@@ -128,19 +251,27 @@ class BaseLLM(ABC):
             structured_llm = self.model.with_structured_output(output_schema)
             
             # Get response from structured LLM
-            response = structured_llm.invoke(prompt)
+            if images:
+                # Use vision-capable message format
+                content = _build_message_content(prompt, images)
+                message = HumanMessage(content=content)
+                response = structured_llm.invoke([message])
+            else:
+                # Use simple text prompt
+                response = structured_llm.invoke(prompt)
             return response
         except Exception as e:
             logger.error(f"Failed to generate structured output: {str(e)}")
             raise
             
-    async def ainvoke_structured(self, prompt: str, output_schema: Type[T]) -> T:
+    async def ainvoke_structured(self, prompt: str, output_schema: Type[T], images: Optional[List[Union[str, Path, "Image.Image"]]] = None) -> T:
         """
-        Asynchronously invoke the model with structured output.
+        Asynchronously invoke the model with structured output and optional images.
         
         Args:
             prompt: The prompt to send to the model
             output_schema: Pydantic model class for structured output
+            images (List, optional): List of images (file paths, URLs, Path objects, or PIL Images)
             
         Returns:
             An instance of the output_schema class
@@ -153,7 +284,14 @@ class BaseLLM(ABC):
             structured_llm = self.model.with_structured_output(output_schema)
             
             # Get response from structured LLM
-            response = await structured_llm.ainvoke(prompt)
+            if images:
+                # Use vision-capable message format
+                content = _build_message_content(prompt, images)
+                message = HumanMessage(content=content)
+                response = await structured_llm.ainvoke([message])
+            else:
+                # Use simple text prompt
+                response = await structured_llm.ainvoke(prompt)
             return response
         except Exception as e:
             logger.error(f"Failed to generate structured output: {str(e)}")
@@ -327,4 +465,34 @@ def create_llm(
             **kwargs
         )
     else:
-        raise ValueError(f"Unsupported API mode: {api_mode}. Use 'remote' or 'local'.") 
+        raise ValueError(f"Unsupported API mode: {api_mode}. Use 'remote' or 'local'.")
+
+
+def generate(prompt: str, image: Optional[Union[str, Path, "Image.Image", List[Union[str, Path, "Image.Image"]]]] = None, llm: Optional[BaseLLM] = None) -> str:
+    """
+    Convenience function for generating responses with optional image support.
+    Compatible with the original generate function signature.
+    
+    Args:
+        prompt (str): The text prompt
+        image (optional): Single image or list of images (file paths, URLs, Path objects, or PIL Images)
+        llm (BaseLLM, optional): The LLM instance to use
+        
+    Returns:
+        str: The model's response
+        
+    Raises:
+        ValueError: If no LLM instance is provided
+    """
+    if llm is None:
+        raise ValueError("LLM instance must be provided")
+    
+    # Handle the case where image is a single item (convert to list)
+    images = None
+    if image is not None:
+        if isinstance(image, list):
+            images = image if image else None  # Handle empty list
+        else:
+            images = [image]  # Convert single image to list
+    
+    return llm.invoke(prompt, images=images) 
