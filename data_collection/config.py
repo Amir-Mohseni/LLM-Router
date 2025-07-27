@@ -3,15 +3,25 @@
 #
 # Model & API settings
 #
-MODEL_NAME = "google/gemma-3-27b-it"  # The model identifier to use for inference
-API_MODE = "local"                   # "local" (vLLM server) or "remote" (OpenAI API)
-API_BASE = "http://localhost:8000/v1"  # Base URL for API
-API_KEY_NAME = "VLLM_API_KEY"
+#MODEL_NAME = "google/gemma-3-27b-it"  # The model identifier to use for inference
+#API_MODE = "local"                   # "local" (vLLM server) or "remote" (OpenAI API)
+#API_BASE = "http://localhost:8000/v1"  # Base URL for API
+#API_KEY_NAME = "VLLM_API_KEY"
 
 #MODEL_NAME = "gemini-2.0-flash"
 #API_MODE = "remote"
-#API_KEY_NAME = "GOOGLE_API_KEY"
+#API_KEY_NAME = "GEMINI_API_KEY"
 #API_BASE = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+MODEL_NAME = "qwen/qwen3-8b:free"
+API_MODE = "remote"
+API_KEY_NAME = "OPENROUTER_API_KEY"
+API_BASE = "https://openrouter.ai/api/v1"
+SYSTEM_PROMPT = "You are a helpful assistant. /no_think"
+
+# System prompt settings - used to control model behavior
+# Set to None for no system prompt, or specify a string to apply to all models
+#SYSTEM_PROMPT = None  # Default: no system prompt
 
 # vLLM server settings (only used when starting the server, not by run_inference.py)
 VLLM_HOST = "0.0.0.0"
@@ -26,14 +36,15 @@ VLLM_KV_CACHE_DTYPE = "auto"  # Data type for KV cache: "auto", "fp8", "fp16", "
 #
 # Dataset settings
 #
-DATASET_NAME = "HPC-Boys/MATH_500_MMLU_Pro"
+#DATASET_NAME = "HPC-Boys/MATH_500_MMLU_Pro"
+DATASET_NAME = "HPC-Boys/AIME_1983_2024"
 DATASET_SPLIT = "train"
-NUM_PROBLEMS = 5  # Number of problems to test, or 'all' for entire dataset
+NUM_PROBLEMS = 'all'  # Number of problems to test, or 'all' for entire dataset
 
 #
 # Generation settings
 #
-K_RESPONSES = 5       # Number of responses per question
+K_RESPONSES = 3       # Number of responses per question
 TEMPERATURE = 0.7     # Sampling temperature for diversity
 MAX_TOKENS = 2048     # Maximum tokens per response
 

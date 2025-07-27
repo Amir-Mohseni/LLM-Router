@@ -25,7 +25,7 @@ from config import (
     NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR,
     PROBLEM_BATCH_SIZE, API_MODE, API_BASE, API_KEY_NAME,
     MODEL_NAME, GENERATION_KWARGS,
-    MAX_CONCURRENT_REQUESTS
+    MAX_CONCURRENT_REQUESTS, SYSTEM_PROMPT
 )
 from prompts import (
     MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT,
@@ -304,9 +304,13 @@ async def main_async():
             api_base=api_base,
             temperature=args.temperature,
             max_tokens=args.max_tokens,
+            system_prompt=SYSTEM_PROMPT,
             **filtered_kwargs  # Use properly filtered kwargs
         )
-        print(f"LLM initialized")
+        if SYSTEM_PROMPT:
+            print(f"LLM initialized with system prompt: {SYSTEM_PROMPT}")
+        else:
+            print(f"LLM initialized")
     except Exception as e:
         logger.error(f"Error initializing LLM: {e}")
         if api_mode == "local":

@@ -147,6 +147,7 @@ class BaseLLM(ABC):
         model_name: str,
         temperature: float = 0.1,
         max_tokens: Optional[int] = None,
+        system_prompt: Optional[str] = None,
         **kwargs
     ):
         """
@@ -156,11 +157,13 @@ class BaseLLM(ABC):
             model_name (str): The specific model name
             temperature (float): Temperature setting for generation
             max_tokens (int, optional): Maximum tokens to generate
+            system_prompt (str, optional): System prompt to prepend to all conversations
             **kwargs: Additional provider-specific parameters
         """
         self.model_name = model_name
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.system_prompt = system_prompt
         self.kwargs = kwargs
         self.model = None  # Will be initialized by subclasses
     
@@ -168,6 +171,34 @@ class BaseLLM(ABC):
     def _initialize_model(self):
         """Initialize the model - to be implemented by subclasses"""
         pass
+    
+    def _build_messages(self, prompt: str, images: Optional[List[Union[str, Path, "Image.Image"]]] = None) -> List:
+        """
+        Build messages list with optional system prompt.
+        
+        Args:
+            prompt (str): The user prompt
+            images (List, optional): List of images for the user message
+            
+        Returns:
+            List of messages for the model
+        """
+        from langchain_core.messages import SystemMessage, HumanMessage
+        
+        messages = []
+        
+        # Add system message if system_prompt is set
+        if self.system_prompt:
+            messages.append(SystemMessage(content=self.system_prompt))
+        
+        # Add user message with optional images
+        if images:
+            content = _build_message_content(prompt, images)
+            messages.append(HumanMessage(content=content))
+        else:
+            messages.append(HumanMessage(content=prompt))
+            
+        return messages
     
     def invoke(self, prompt: str, images: Optional[List[Union[str, Path, "Image.Image"]]] = None) -> str:
         """
@@ -184,11 +215,10 @@ class BaseLLM(ABC):
             raise ValueError("Model has not been initialized")
             
         try:
-            if images:
-                # Use vision-capable message format
-                content = _build_message_content(prompt, images)
-                message = HumanMessage(content=content)
-                response = self.model.invoke([message])
+            if self.system_prompt or images:
+                # Use message-based format when system prompt is set or images are provided
+                messages = self._build_messages(prompt, images)
+                response = self.model.invoke(messages)
             else:
                 # Use simple text prompt
                 response = self.model.invoke(prompt)
@@ -215,11 +245,10 @@ class BaseLLM(ABC):
             raise ValueError("Model has not been initialized")
             
         try:
-            if images:
-                # Use vision-capable message format
-                content = _build_message_content(prompt, images)
-                message = HumanMessage(content=content)
-                response = await self.model.ainvoke([message])
+            if self.system_prompt or images:
+                # Use message-based format when system prompt is set or images are provided
+                messages = self._build_messages(prompt, images)
+                response = await self.model.ainvoke(messages)
             else:
                 # Use simple text prompt
                 response = await self.model.ainvoke(prompt)
@@ -308,6 +337,7 @@ class RemoteLLM(BaseLLM):
         base_url: Optional[str] = None,
         temperature: float = 0.1,
         max_tokens: Optional[int] = None,
+        system_prompt: Optional[str] = None,
         **kwargs
     ):
         """
@@ -319,6 +349,7 @@ class RemoteLLM(BaseLLM):
             base_url (str, optional): Base URL for API requests
             temperature (float): Temperature setting for generation
             max_tokens (int, optional): Maximum tokens to generate
+            system_prompt (str, optional): System prompt to prepend to all conversations
             **kwargs: Additional provider-specific parameters
         """
         # Log warnings about incompatible parameters but don't filter them
@@ -326,7 +357,7 @@ class RemoteLLM(BaseLLM):
         if unsupported_params:
             logger.warning(f"Some parameters may not be supported by remote API: {unsupported_params}")
             
-        super().__init__(model_name, temperature, max_tokens, **kwargs)
+        super().__init__(model_name, temperature, max_tokens, system_prompt, **kwargs)
         self.api_key = api_key
         self.base_url = base_url
         self._initialize_model()
@@ -369,6 +400,7 @@ class LocalLLM(BaseLLM):
         api_base: str = "http://localhost:8000/v1",
         temperature: float = 0.1,
         max_tokens: Optional[int] = None,
+        system_prompt: Optional[str] = None,
         **kwargs
     ):
         """
@@ -379,6 +411,7 @@ class LocalLLM(BaseLLM):
             api_base (str): Base URL for the local vLLM server
             temperature (float): Temperature setting for generation
             max_tokens (int, optional): Maximum tokens to generate
+            system_prompt (str, optional): System prompt to prepend to all conversations
             **kwargs: Additional model-specific parameters
         """
         # Log warnings about incompatible parameters but don't filter them
@@ -386,7 +419,7 @@ class LocalLLM(BaseLLM):
         if unsupported_params:
             logger.warning(f"Some parameters may not be supported by vLLM: {unsupported_params}")
             
-        super().__init__(model_name, temperature, max_tokens, **kwargs)
+        super().__init__(model_name, temperature, max_tokens, system_prompt, **kwargs)
         self.api_base = api_base
         self._initialize_model()
     
@@ -426,6 +459,7 @@ def create_llm(
     api_base: Optional[str] = None,
     temperature: float = 0.1,
     max_tokens: Optional[int] = None,
+    system_prompt: Optional[str] = None,
     **kwargs
 ) -> BaseLLM:
     """
@@ -438,6 +472,7 @@ def create_llm(
         api_base (str, optional): Base URL for API requests
         temperature (float): Temperature setting for generation
         max_tokens (int, optional): Maximum tokens to generate
+        system_prompt (str, optional): System prompt to prepend to all conversations
         **kwargs: Additional provider-specific parameters
         
     Returns:
@@ -452,6 +487,7 @@ def create_llm(
             base_url=api_base,
             temperature=temperature,
             max_tokens=max_tokens,
+            system_prompt=system_prompt,
             **kwargs
         )
     elif api_mode.lower() == "local":
@@ -462,6 +498,7 @@ def create_llm(
             api_base=local_api_base,
             temperature=temperature,
             max_tokens=max_tokens,
+            system_prompt=system_prompt,
             **kwargs
         )
     else:

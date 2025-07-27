@@ -164,6 +164,7 @@ def run_inference_direct(args, problems, output_file):
     # Import necessary modules
     import asyncio
     from LLM import create_llm, REMOTE_API_PARAMS, LOCAL_VLLM_PARAMS
+    from config import SYSTEM_PROMPT
     from prompts import (
         MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT, 
         env as jinja_env
@@ -216,9 +217,13 @@ def run_inference_direct(args, problems, output_file):
             api_base=args.api_base,
             temperature=args.temperature,
             max_tokens=args.max_tokens,
+            system_prompt=SYSTEM_PROMPT,
             **filtered_kwargs
         )
-        print(f"LLM initialized")
+        if SYSTEM_PROMPT:
+            print(f"LLM initialized with system prompt: {SYSTEM_PROMPT}")
+        else:
+            print(f"LLM initialized")
     except Exception as e:
         logger.error(f"Error initializing LLM: {e}")
         if args.api_mode == "local":
