@@ -6,7 +6,7 @@ This module provides:
 2. Structured output generation from LLMs
 3. Vision capabilities with image inputs
 
-It uses LangChain under the hood but provides a simplified interface.
+It uses OpenAI API directly.
 """
 
 import os
@@ -21,10 +21,11 @@ from dotenv import load_dotenv
 from pathlib import Path
 from io import BytesIO
 from urllib.parse import urlparse
+import asyncio
 
-# Import LangChain components
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage
+# Import OpenAI components
+import openai
+from openai import OpenAI, AsyncOpenAI
 
 # Load environment variables
 load_dotenv(override=True)
@@ -56,13 +57,13 @@ def _is_url(string: str) -> bool:
 
 def _process_image(image: Union[str, Path, "Image.Image"]) -> Dict[str, Any]:
     """
-    Process a single image into the format expected by LangChain.
+    Process a single image into the format expected by OpenAI.
     
     Args:
         image: Image as file path, Path object, URL string, or PIL Image
         
     Returns:
-        Dict containing the image data in LangChain format
+        Dict containing the image data in OpenAI format
     """
     if isinstance(image, str) and _is_url(image):
         # Handle URL case - return URL directly
@@ -122,7 +123,7 @@ def _build_message_content(prompt: str, images: Optional[List[Union[str, Path, "
         images: Optional list of images (file paths, URLs, Path objects, or PIL Images, can be empty list)
         
     Returns:
-        List of content items for LangChain message
+        List of content items for OpenAI message
     """
     content = [{"type": "text", "text": prompt}]
     
@@ -140,6 +141,7 @@ class BaseLLM(ABC):
         self, 
         model_name: str,
         system_prompt: Optional[str] = None,
+        extra_body: Optional[Dict[str, Any]] = None,
         **kwargs
     ):
         """
@@ -148,19 +150,22 @@ class BaseLLM(ABC):
         Args:
             model_name (str): The specific model name
             system_prompt (str, optional): System prompt to prepend to all conversations
+            extra_body (dict, optional): Extra body parameters to pass to the API
             **kwargs: Additional provider-specific parameters including temperature and max_tokens
         """
         self.model_name = model_name
         self.system_prompt = system_prompt
+        self.extra_body = extra_body
         self.kwargs = kwargs
-        self.model = None  # Will be initialized by subclasses
+        self.client = None  # Will be initialized by subclasses
+        self.async_client = None  # Async client
     
     @abstractmethod
     def _initialize_model(self):
         """Initialize the model - to be implemented by subclasses"""
         pass
     
-    def _build_messages(self, prompt: str, images: Optional[List[Union[str, Path, "Image.Image"]]] = None) -> List:
+    def _build_messages(self, prompt: str, images: Optional[List[Union[str, Path, "Image.Image"]]] = None) -> List[Dict[str, Any]]:
         """
         Build messages list with optional system prompt.
         
@@ -171,20 +176,18 @@ class BaseLLM(ABC):
         Returns:
             List of messages for the model
         """
-        from langchain_core.messages import SystemMessage, HumanMessage
-        
         messages = []
         
         # Add system message if system_prompt is set
         if self.system_prompt:
-            messages.append(SystemMessage(content=self.system_prompt))
+            messages.append({"role": "system", "content": self.system_prompt})
         
         # Add user message with optional images
         if images:
             content = _build_message_content(prompt, images)
-            messages.append(HumanMessage(content=content))
+            messages.append({"role": "user", "content": content})
         else:
-            messages.append(HumanMessage(content=prompt))
+            messages.append({"role": "user", "content": prompt})
             
         return messages
     
@@ -199,21 +202,27 @@ class BaseLLM(ABC):
         Returns:
             str: The model's response
         """
-        if not self.model:
+        if not self.client:
             raise ValueError("Model has not been initialized")
             
         try:
-            if self.system_prompt or images:
-                # Use message-based format when system prompt is set or images are provided
-                messages = self._build_messages(prompt, images)
-                response = self.model.invoke(messages)
-            else:
-                # Use simple text prompt
-                response = self.model.invoke(prompt)
-                
-            if hasattr(response, 'content'):
-                return response.content
-            return response
+            messages = self._build_messages(prompt, images)
+            
+            # Build request parameters
+            request_params = {
+                "model": self.model_name,
+                "messages": messages,
+                **self.kwargs
+            }
+            
+            # Add extra_body if provided
+            if self.extra_body:
+                request_params["extra_body"] = self.extra_body
+                logger.debug(f"Using extra_body parameters: {self.extra_body}")
+            
+            logger.debug(f"Request parameters: {request_params}")
+            response = self.client.chat.completions.create(**request_params)
+            return response.choices[0].message.content
         except Exception as e:
             logger.error(f"Error invoking model: {str(e)}")
             raise
@@ -229,21 +238,25 @@ class BaseLLM(ABC):
         Returns:
             str: The model's response
         """
-        if not self.model:
-            raise ValueError("Model has not been initialized")
+        if not self.async_client:
+            raise ValueError("Async client has not been initialized")
             
         try:
-            if self.system_prompt or images:
-                # Use message-based format when system prompt is set or images are provided
-                messages = self._build_messages(prompt, images)
-                response = await self.model.ainvoke(messages)
-            else:
-                # Use simple text prompt
-                response = await self.model.ainvoke(prompt)
-                
-            if hasattr(response, 'content'):
-                return response.content
-            return response
+            messages = self._build_messages(prompt, images)
+            
+            # Build request parameters
+            request_params = {
+                "model": self.model_name,
+                "messages": messages,
+                **self.kwargs
+            }
+            
+            # Add extra_body if provided
+            if self.extra_body:
+                request_params["extra_body"] = self.extra_body
+            
+            response = await self.async_client.chat.completions.create(**request_params)
+            return response.choices[0].message.content
         except Exception as e:
             logger.error(f"Error in async invocation: {str(e)}")
             raise
@@ -260,23 +273,38 @@ class BaseLLM(ABC):
         Returns:
             An instance of the output_schema class
         """
-        if not self.model:
+        if not self.client:
             raise ValueError("Model has not been initialized")
             
         try:
-            # Create a structured LLM from the current LLM
-            structured_llm = self.model.with_structured_output(output_schema)
+            messages = self._build_messages(prompt, images)
             
-            # Get response from structured LLM
-            if images:
-                # Use vision-capable message format
-                content = _build_message_content(prompt, images)
-                message = HumanMessage(content=content)
-                response = structured_llm.invoke([message])
-            else:
-                # Use simple text prompt
-                response = structured_llm.invoke(prompt)
-            return response
+            # Build request parameters with response_format for structured output
+            request_params = {
+                "model": self.model_name,
+                "messages": messages,
+                "response_format": {"type": "json_object"},
+                **self.kwargs
+            }
+            
+            # Add extra_body if provided
+            if self.extra_body:
+                request_params["extra_body"] = self.extra_body
+            
+            response = self.client.chat.completions.create(**request_params)
+            content = response.choices[0].message.content
+            
+            # Parse JSON response and validate with Pydantic
+            try:
+                data = json.loads(content)
+                return output_schema(**data)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON response: {content}")
+                raise ValueError(f"Invalid JSON response: {str(e)}")
+            except Exception as e:
+                logger.error(f"Failed to validate with schema: {str(e)}")
+                raise ValueError(f"Response doesn't match schema: {str(e)}")
+                
         except Exception as e:
             logger.error(f"Failed to generate structured output: {str(e)}")
             raise
@@ -293,30 +321,45 @@ class BaseLLM(ABC):
         Returns:
             An instance of the output_schema class
         """
-        if not self.model:
-            raise ValueError("Model has not been initialized")
+        if not self.async_client:
+            raise ValueError("Async client has not been initialized")
             
         try:
-            # Create a structured LLM from the current LLM
-            structured_llm = self.model.with_structured_output(output_schema)
+            messages = self._build_messages(prompt, images)
             
-            # Get response from structured LLM
-            if images:
-                # Use vision-capable message format
-                content = _build_message_content(prompt, images)
-                message = HumanMessage(content=content)
-                response = await structured_llm.ainvoke([message])
-            else:
-                # Use simple text prompt
-                response = await structured_llm.ainvoke(prompt)
-            return response
+            # Build request parameters with response_format for structured output
+            request_params = {
+                "model": self.model_name,
+                "messages": messages,
+                "response_format": {"type": "json_object"},
+                **self.kwargs
+            }
+            
+            # Add extra_body if provided
+            if self.extra_body:
+                request_params["extra_body"] = self.extra_body
+            
+            response = await self.async_client.chat.completions.create(**request_params)
+            content = response.choices[0].message.content
+            
+            # Parse JSON response and validate with Pydantic
+            try:
+                data = json.loads(content)
+                return output_schema(**data)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON response: {content}")
+                raise ValueError(f"Invalid JSON response: {str(e)}")
+            except Exception as e:
+                logger.error(f"Failed to validate with schema: {str(e)}")
+                raise ValueError(f"Response doesn't match schema: {str(e)}")
+                
         except Exception as e:
             logger.error(f"Failed to generate structured output: {str(e)}")
             raise
 
 
 class RemoteLLM(BaseLLM):
-    """Class for remote API-based LLMs like OpenAI models"""
+    """Class for remote API-based LLMs using OpenAI-compatible APIs"""
     
     def __init__(
         self,
@@ -324,6 +367,7 @@ class RemoteLLM(BaseLLM):
         api_key: str,
         base_url: Optional[str] = None,
         system_prompt: Optional[str] = None,
+        extra_body: Optional[Dict[str, Any]] = None,
         **kwargs
     ):
         """
@@ -334,31 +378,30 @@ class RemoteLLM(BaseLLM):
             api_key (str): API key for the provider
             base_url (str, optional): Base URL for API requests
             system_prompt (str, optional): System prompt to prepend to all conversations
+            extra_body (dict, optional): Extra body parameters to pass to the API
             **kwargs: Additional provider-specific parameters including temperature and max_tokens
         """
-        super().__init__(model_name, system_prompt, **kwargs)
+        super().__init__(model_name, system_prompt, extra_body, **kwargs)
         self.api_key = api_key
         self.base_url = base_url
         self._initialize_model()
     
     def _initialize_model(self):
-        """Initialize the OpenAI model"""
-        # Build config for the model
-        model_config = {
-            "api_key": self.api_key,
-            "model": self.model_name,
-        }
-        
-        # Add base URL if provided
-        if self.base_url:
-            model_config["base_url"] = self.base_url
-            
-        # Add any additional kwargs (including temperature and max_tokens)
+        """Initialize the OpenAI client"""
         try:
-            model_config.update(self.kwargs)
+            # Build config for the client
+            client_config = {
+                "api_key": self.api_key,
+            }
             
-            # Initialize the ChatOpenAI model
-            self.model = ChatOpenAI(**model_config)
+            # Add base URL if provided
+            if self.base_url:
+                client_config["base_url"] = self.base_url
+                
+            # Initialize both sync and async clients
+            self.client = OpenAI(**client_config)
+            self.async_client = AsyncOpenAI(**client_config)
+            
             logger.info(f"Initialized remote LLM: {self.model_name}")
         except Exception as e:
             logger.error(f"Error initializing remote LLM: {str(e)}")
@@ -371,6 +414,7 @@ def create_llm(
     api_base: str,
     system_prompt: Optional[str] = None,
     sampling_params: Optional[Dict[str, Any]] = None,
+    extra_body: Optional[Dict[str, Any]] = None,
     **kwargs
 ) -> BaseLLM:
     """
@@ -382,6 +426,7 @@ def create_llm(
         api_base (str): Base URL for API requests
         system_prompt (str, optional): System prompt to prepend to all conversations
         sampling_params (dict, optional): Sampling parameters (temperature, max_tokens, etc.)
+        extra_body (dict, optional): Extra body parameters to pass to the API
         **kwargs: Additional provider-specific parameters
         
     Returns:
@@ -390,15 +435,18 @@ def create_llm(
     if not api_key:
         raise ValueError("API key must be provided")
     
-    # Pass sampling parameters as kwargs
+    # Merge sampling_params into extra_body instead of passing as kwargs
     if sampling_params:
-        kwargs.update(sampling_params)
+        if extra_body is None:
+            extra_body = {}
+        extra_body.update(sampling_params)
     
     return RemoteLLM(
         model_name=model_name,
         api_key=api_key,
         base_url=api_base,
         system_prompt=system_prompt,
+        extra_body=extra_body,
         **kwargs
     )
 

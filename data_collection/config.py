@@ -3,20 +3,20 @@
 #
 # LLM Configuration
 #
-LLM_CONFIG = {
-    "model_name": "qwen/qwen3-8b",
-    "base_url": "https://openrouter.ai/api/v1",
-    "api_key_name": "OPENROUTER_API_KEY",
-    "system_prompt": None,  # Set to None for no system prompt, or specify a string
-}
-
-# Alternative LLM configurations (commented out)
 # LLM_CONFIG = {
 #     "model_name": "qwen/qwen3-8b",
-#     "base_url": "http://localhost:8000/v1",
-#     "api_key_name": "VLLM_API_KEY",
-#     "system_prompt": None,
+#     "base_url": "https://openrouter.ai/api/v1",
+#     "api_key_name": "OPENROUTER_API_KEY",
+#     "system_prompt": None,  # Set to None for no system prompt, or specify a string
 # }
+
+# Alternative LLM configurations (commented out)
+LLM_CONFIG = {
+    "model_name": "Qwen/Qwen3-8B",
+    "base_url": "http://localhost:8000/v1",
+    "api_key_name": "VLLM_API_KEY",
+    "system_prompt": None,
+}
 
 # LLM_CONFIG = {
 #     "model_name": "gemini-2.0-flash",
@@ -49,7 +49,7 @@ NON_THINKING_PARAMS = {
 }
 
 # Default sampling parameters (empty by default)
-DEFAULT_SAMPLING_PARAMS = {}
+DEFAULT_SAMPLING_PARAMS = NON_THINKING_PARAMS
 
 #
 # Judge LLM Configuration (for answer extraction verification)
@@ -73,7 +73,7 @@ JUDGE_SAMPLING_PARAMS = {
 DATASET_CONFIG = {
     "dataset_name": "HPC-Boys/AIME_1983_2024",  # Alternative: "HPC-Boys/MATH_500_MMLU_Pro"
     "dataset_split": "train",
-    "num_problems": 5,  # Number of problems to test, or 'all' for entire dataset
+    "num_problems": 'all',  # Number of problems to test, or 'all' for entire dataset
 }
 
 #
