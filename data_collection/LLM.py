@@ -28,7 +28,7 @@ import openai
 from openai import OpenAI, AsyncOpenAI
 
 # Load environment variables
-load_dotenv(override=True)
+load_dotenv()
 
 # Set up logger
 logger = logging.getLogger(__name__)
