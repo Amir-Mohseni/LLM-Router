@@ -35,7 +35,7 @@ THINKING_PARAMS = {
     "top_p": 0.95,
     "top_k": 20,
     "min_p": 0,
-    "max_tokens": None,
+    "max_tokens": 16384,
 }
 
 NON_THINKING_PARAMS = {
@@ -45,7 +45,7 @@ NON_THINKING_PARAMS = {
     "top_p": 0.8,
     "top_k": 20,
     "min_p": 0,
-    "max_tokens": None,
+    "max_tokens": 8192,
 }
 
 # Default sampling parameters (empty by default)
