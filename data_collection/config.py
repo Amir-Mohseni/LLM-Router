@@ -57,14 +57,14 @@ DEFAULT_SAMPLING_PARAMS = {}
 DATASET_CONFIG = {
     "dataset_name": "HPC-Boys/AIME_1983_2024",  # Alternative: "HPC-Boys/MATH_500_MMLU_Pro"
     "dataset_split": "train",
-    "num_problems": 10,  # Number of problems to test, or 'all' for entire dataset
+    "num_problems": 5,  # Number of problems to test, or 'all' for entire dataset
 }
 
 #
 # Generation Configuration
 #
 GENERATION_CONFIG = {
-    "k_responses": 3,      # Number of responses per question
+    "k_responses": 1,      # Number of responses per question
 }
 
 #

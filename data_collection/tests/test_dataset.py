@@ -13,7 +13,7 @@ if parent_dir not in sys.path:
 
 from datasets import Dataset
 from dataset import load_math_dataset
-from config import DATASET_NAME, DATASET_SPLIT
+from config import DATASET_CONFIG
 from prompts import (
     MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT,
     env as jinja_env
