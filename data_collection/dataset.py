@@ -4,12 +4,12 @@ from datasets import load_dataset, Dataset
 from typing import Union, Optional
 
 # Import configuration
-from config import DATASET_NAME, DATASET_SPLIT, NUM_PROBLEMS
+from config import DATASET_CONFIG
 
 def load_math_dataset(
-    dataset_name: str = DATASET_NAME, 
-    split: str = DATASET_SPLIT, 
-    num_problems: Union[int, str] = NUM_PROBLEMS
+    dataset_name: str = DATASET_CONFIG["dataset_name"], 
+    split: str = DATASET_CONFIG["dataset_split"], 
+    num_problems: Union[int, str] = DATASET_CONFIG["num_problems"]
 ) -> Dataset:
     """
     Loads the specified math dataset from Hugging Face datasets.

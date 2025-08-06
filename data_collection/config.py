@@ -1,57 +1,83 @@
 # Configuration settings for model inference
 
 #
-# Model & API settings
+# LLM Configuration
 #
-MODEL_NAME = "google/gemma-3-27b-it"  # The model identifier to use for inference
-API_MODE = "local"                   # "local" (vLLM server) or "remote" (OpenAI API)
-API_BASE = "http://localhost:8000/v1"  # Base URL for API
-API_KEY_NAME = "VLLM_API_KEY"
+LLM_CONFIG = {
+    "model_name": "qwen/qwen3-8b",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key_name": "OPENROUTER_API_KEY",
+    "system_prompt": None,  # Set to None for no system prompt, or specify a string
+}
 
-#MODEL_NAME = "gemini-2.0-flash"
-#API_MODE = "remote"
-#API_KEY_NAME = "GOOGLE_API_KEY"
-#API_BASE = "https://generativelanguage.googleapis.com/v1beta/openai/"
+# Alternative LLM configurations (commented out)
+# LLM_CONFIG = {
+#     "model_name": "google/gemma-3-27b-it",
+#     "base_url": "http://localhost:8000/v1",
+#     "api_key_name": "VLLM_API_KEY",
+#     "system_prompt": None,
+# }
 
-# vLLM server settings (only used when starting the server, not by run_inference.py)
-VLLM_HOST = "0.0.0.0"
-VLLM_PORT = 8000
-VLLM_MODEL_IMPL = "transformers"
-VLLM_MAX_MODEL_LEN = 8192
-VLLM_TENSOR_PARALLEL_SIZE = 1  # Number of GPUs to use for tensor parallelism (default: 1)
-VLLM_ENABLE_EXPERT_PARALLEL = False  # Enable expert parallelism for MoE models
-VLLM_KV_CACHE_DTYPE = "auto"  # Data type for KV cache: "auto", "fp8", "fp16", "bf16", etc.
-# Note: For gemma models, we need to disable multimodal preprocessing with --disable-mm-preprocessor-cache
-
-#
-# Dataset settings
-#
-DATASET_NAME = "HPC-Boys/MATH_500_MMLU_Pro"
-DATASET_SPLIT = "train"
-NUM_PROBLEMS = 5  # Number of problems to test, or 'all' for entire dataset
+# LLM_CONFIG = {
+#     "model_name": "gemini-2.0-flash",
+#     "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+#     "api_key_name": "GEMINI_API_KEY",
+#     "system_prompt": None,
+# }
 
 #
-# Generation settings
+# Sampling Presets
 #
-K_RESPONSES = 5       # Number of responses per question
-TEMPERATURE = 0.7     # Sampling temperature for diversity
-MAX_TOKENS = 2048     # Maximum tokens per response
+THINKING_PARAMS = {
+    "chat_template_kwargs": {"enable_thinking": True},
+    "do_sample": True,
+    "temperature": 0.6,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0,
+    "max_tokens": None,
+}
 
-# Advanced generation settings
-GENERATION_KWARGS = {
-    "stop": ["<end_of_turn>", "<|end_of_turn|>", "<|im_end|>"],
-    "logprobs": None,  # Don't return token logprobs to save bandwidth
-    "echo": False,     # Don't echo the prompt in the response
+NON_THINKING_PARAMS = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "do_sample": True,
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "top_k": 20,
+    "min_p": 0,
+    "max_tokens": None,
+}
+
+# Default sampling parameters (empty by default)
+DEFAULT_SAMPLING_PARAMS = {}
+
+#
+# Dataset Configuration
+#
+DATASET_CONFIG = {
+    "dataset_name": "HPC-Boys/AIME_1983_2024",  # Alternative: "HPC-Boys/MATH_500_MMLU_Pro"
+    "dataset_split": "train",
+    "num_problems": 5,  # Number of problems to test, or 'all' for entire dataset
 }
 
 #
-# Processing settings
+# Generation Configuration
 #
-# Batch processing controls
-PROBLEM_BATCH_SIZE = 100  # Problems per batch for checkpointing
-MAX_CONCURRENT_REQUESTS = 100  # Maximum concurrent API requests
+GENERATION_CONFIG = {
+    "k_responses": 1,      # Number of responses per question
+}
 
 #
-# Output settings
+# Processing Configuration
 #
-OUTPUT_DIR = "data_collection/inference_results" 
+PROCESSING_CONFIG = {
+    "problem_batch_size": 30,        # Problems per batch for checkpointing
+    "max_concurrent_requests": 30,   # Maximum concurrent API requests
+}
+
+#
+# Output Configuration
+#
+OUTPUT_CONFIG = {
+    "output_dir": "data_collection/inference_results",
+}

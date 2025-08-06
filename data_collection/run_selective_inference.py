@@ -14,11 +14,8 @@ logging.basicConfig(level=logging.INFO,
 
 # Import config before other imports to ensure it's fully loaded
 from config import (
-    DATASET_NAME, DATASET_SPLIT,
-    NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR,
-    PROBLEM_BATCH_SIZE, API_MODE, API_BASE, API_KEY_NAME,
-    MODEL_NAME, GENERATION_KWARGS,
-    MAX_CONCURRENT_REQUESTS
+    LLM_CONFIG, DATASET_CONFIG, GENERATION_CONFIG, PROCESSING_CONFIG, OUTPUT_CONFIG,
+    THINKING_PARAMS, NON_THINKING_PARAMS, DEFAULT_SAMPLING_PARAMS
 )
 
 from dataset import load_math_dataset
@@ -30,35 +27,29 @@ def parse_args():
                         help="Path to the processed results from the weaker model (JSONL)")
     parser.add_argument("--failure_threshold", type=float, default=0.5,
                         help="Threshold for considering a question failed (e.g., 0.5 means >50% of runs were wrong)")
-    parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR,
-                        help=f"Directory to save results (default: {OUTPUT_DIR})")
+    parser.add_argument("--output_dir", type=str, default=OUTPUT_CONFIG["output_dir"],
+                        help=f"Directory to save results (default: {OUTPUT_CONFIG['output_dir']})")
     parser.add_argument("--output_file", type=str, required=True,
                         help="Filename for selective inference results")
-    parser.add_argument("--model", type=str, default=MODEL_NAME,
-                        help=f"Stronger model to use for inference (default: {MODEL_NAME})")
-    parser.add_argument("--api_mode", type=str, choices=["local", "remote"], default=API_MODE,
-                        help=f"API mode to use (default: {API_MODE})")
+    parser.add_argument("--model", type=str, default=LLM_CONFIG["model_name"],
+                        help=f"Stronger model to use for inference (default: {LLM_CONFIG['model_name']})")
     parser.add_argument("--retry_failed", action="store_true",
                         help="Only retry questions that previously failed")
     
     # Add any additional run_inference.py parameters with defaults from config
-    parser.add_argument("--k_responses", type=int, default=K_RESPONSES,
-                        help=f"Number of responses per problem (default: {K_RESPONSES})")
-    parser.add_argument("--temperature", type=float, default=TEMPERATURE,
-                        help=f"Sampling temperature (default: {TEMPERATURE})")
-    parser.add_argument("--max_tokens", type=int, default=MAX_TOKENS,
-                        help=f"Maximum number of tokens for generation (default: {MAX_TOKENS})")
-    parser.add_argument("--api_base", type=str, default=API_BASE,
-                        help=f"Base URL for the API (default: {API_BASE})")
+    parser.add_argument("--k_responses", type=int, default=GENERATION_CONFIG["k_responses"],
+                        help=f"Number of responses per problem (default: {GENERATION_CONFIG['k_responses']})")
+    parser.add_argument("--api_base", type=str, default=LLM_CONFIG["base_url"],
+                        help=f"Base URL for the API (default: {LLM_CONFIG['base_url']})")
     parser.add_argument("--api_key", type=str, default=None,
-                        help=f"API key (default: loaded from .env file as {API_KEY_NAME})")
-    parser.add_argument("--max_concurrent", type=int, default=MAX_CONCURRENT_REQUESTS,
-                        help=f"Maximum concurrent API requests (default: {MAX_CONCURRENT_REQUESTS})")
-    parser.add_argument("--batch_size", type=int, default=PROBLEM_BATCH_SIZE,
-                        help=f"Number of problems per batch for checkpointing (default: {PROBLEM_BATCH_SIZE})")
+                        help=f"API key (default: loaded from .env file as {LLM_CONFIG['api_key_name']})")
+    parser.add_argument("--max_concurrent", type=int, default=PROCESSING_CONFIG["max_concurrent_requests"],
+                        help=f"Maximum concurrent API requests (default: {PROCESSING_CONFIG['max_concurrent_requests']})")
+    parser.add_argument("--batch_size", type=int, default=PROCESSING_CONFIG["problem_batch_size"],
+                        help=f"Number of problems per batch for checkpointing (default: {PROCESSING_CONFIG['problem_batch_size']})")
     return parser.parse_args()
 
-def filter_failed_problems(results_file, failure_threshold=0.5, k_responses=K_RESPONSES):
+def filter_failed_problems(results_file, failure_threshold=0.5, k_responses=GENERATION_CONFIG["k_responses"]):
     """
     Extract problems that the weaker model failed on more than failure_threshold percent of the time.
     
@@ -163,7 +154,8 @@ def run_inference_direct(args, problems, output_file):
     
     # Import necessary modules
     import asyncio
-    from LLM import create_llm, REMOTE_API_PARAMS, LOCAL_VLLM_PARAMS
+    from LLM import create_llm
+    # SYSTEM_PROMPT is now in LLM_CONFIG
     from prompts import (
         MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT, 
         env as jinja_env
@@ -188,42 +180,30 @@ def run_inference_direct(args, problems, output_file):
         option_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         return [f"{option_letters[i]}. {choice}" for i, choice in enumerate(choices)]
     
-    # Get filtered kwargs based on API mode
-    def get_filtered_kwargs(api_mode):
-        if api_mode.lower() == "remote":
-            return {k: v for k, v in GENERATION_KWARGS.items() if k in REMOTE_API_PARAMS}
-        else:
-            return GENERATION_KWARGS
+    # Get the API key - always required now
+    api_key = args.api_key or os.environ.get(LLM_CONFIG["api_key_name"])
+    if not api_key:
+        raise ValueError(f"API key is required. Set it with --api_key or in .env file as {LLM_CONFIG['api_key_name']}.")
     
-    # Get the API key based on mode
-    if args.api_mode == "remote":
-        api_key = args.api_key or os.environ.get(API_KEY_NAME)
-        if not api_key:
-            raise ValueError(f"API key is required for remote API mode. Set it with --api_key or in .env file as {API_KEY_NAME}.")
-    else:
-        api_key = "EMPTY"  # For local vLLM server
-    
-    # Filter generation kwargs based on API mode
-    filtered_kwargs = get_filtered_kwargs(args.api_mode)
+    # Use default sampling parameters from config
+    sampling_params = DEFAULT_SAMPLING_PARAMS
     
     # Initialize LLM
     print(f"Initializing LLM...")
     try:
         llm = create_llm(
             model_name=args.model,
-            api_mode=args.api_mode,
             api_key=api_key, 
             api_base=args.api_base,
-            temperature=args.temperature,
-            max_tokens=args.max_tokens,
-            **filtered_kwargs
+            system_prompt=LLM_CONFIG["system_prompt"],
+            sampling_params=sampling_params
         )
-        print(f"LLM initialized")
+        if LLM_CONFIG["system_prompt"]:
+            print(f"LLM initialized with system prompt: {LLM_CONFIG['system_prompt']}")
+        else:
+            print(f"LLM initialized")
     except Exception as e:
         logger.error(f"Error initializing LLM: {e}")
-        if args.api_mode == "local":
-            print("\nFor local mode, make sure the vLLM server is running. You can start it with:")
-            print(f"python -m data_collection.serve_llm --model {args.model}")
         return
     
     # Ensure output directory exists
