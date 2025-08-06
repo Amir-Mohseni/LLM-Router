@@ -21,11 +21,8 @@ logging.basicConfig(level=logging.INFO,
 
 # Import local modules
 from config import (
-    DATASET_NAME, DATASET_SPLIT,
-    NUM_PROBLEMS, K_RESPONSES, TEMPERATURE, MAX_TOKENS, OUTPUT_DIR,
-    PROBLEM_BATCH_SIZE, API_MODE, API_BASE, API_KEY_NAME,
-    MODEL_NAME, GENERATION_KWARGS,
-    MAX_CONCURRENT_REQUESTS, SYSTEM_PROMPT
+    LLM_CONFIG, DATASET_CONFIG, GENERATION_CONFIG, PROCESSING_CONFIG, OUTPUT_CONFIG,
+    THINKING_PARAMS, NON_THINKING_PARAMS, DEFAULT_SAMPLING_PARAMS
 )
 from prompts import (
     MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT,
@@ -35,36 +32,30 @@ from prompts import (
 from dataset import load_math_dataset
 
 # Import our LLM module
-from LLM import create_llm, BaseLLM, REMOTE_API_PARAMS, LOCAL_VLLM_PARAMS
+from LLM import create_llm, BaseLLM
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run inference with LLMs on math problems")
-    parser.add_argument("--model", type=str, default=MODEL_NAME, 
-                        help=f"Model to use for inference (default: {MODEL_NAME})")
-    parser.add_argument("--num_problems", type=str, default=str(NUM_PROBLEMS),
-                        help=f"Number of problems to test or 'all' for entire dataset (default: {NUM_PROBLEMS})")
-    parser.add_argument("--k_responses", type=int, default=K_RESPONSES,
-                        help=f"Number of responses per problem (default: {K_RESPONSES})")
-    parser.add_argument("--temperature", type=float, default=TEMPERATURE,
-                        help=f"Sampling temperature (default: {TEMPERATURE})")
-    parser.add_argument("--max_tokens", type=int, default=MAX_TOKENS,
-                        help=f"Maximum number of tokens for generation (default: {MAX_TOKENS})")
-    parser.add_argument("--output_dir", type=str, default=OUTPUT_DIR,
-                        help=f"Directory to save results (default: {OUTPUT_DIR})")
+    parser.add_argument("--model", type=str, default=LLM_CONFIG["model_name"], 
+                        help=f"Model to use for inference (default: {LLM_CONFIG['model_name']})")
+    parser.add_argument("--num_problems", type=str, default=str(DATASET_CONFIG["num_problems"]),
+                        help=f"Number of problems to test or 'all' for entire dataset (default: {DATASET_CONFIG['num_problems']})")
+    parser.add_argument("--k_responses", type=int, default=GENERATION_CONFIG["k_responses"],
+                        help=f"Number of responses per problem (default: {GENERATION_CONFIG['k_responses']})")
+    parser.add_argument("--output_dir", type=str, default=OUTPUT_CONFIG["output_dir"],
+                        help=f"Directory to save results (default: {OUTPUT_CONFIG['output_dir']})")
     parser.add_argument("--output_file", type=str, required=True,
                         help="Filename for results (required)")
     parser.add_argument("--retry_failed", action="store_true",
                         help="Only retry questions that previously failed")
-    parser.add_argument("--batch_size", type=int, default=PROBLEM_BATCH_SIZE,
-                        help=f"Number of problems per batch for checkpointing (default: {PROBLEM_BATCH_SIZE})")
-    parser.add_argument("--api_mode", type=str, choices=["local", "remote"], default=API_MODE,
-                        help=f"API mode to use (local: vLLM server, remote: OpenAI API) (default: {API_MODE})")
-    parser.add_argument("--api_base", type=str, default=API_BASE,
-                        help=f"Base URL for the API (default: {API_BASE})")
+    parser.add_argument("--batch_size", type=int, default=PROCESSING_CONFIG["problem_batch_size"],
+                        help=f"Number of problems per batch for checkpointing (default: {PROCESSING_CONFIG['problem_batch_size']})")
+    parser.add_argument("--api_base", type=str, default=LLM_CONFIG["base_url"],
+                        help=f"Base URL for the API (default: {LLM_CONFIG['base_url']})")
     parser.add_argument("--api_key", type=str, default=None,
                         help="API key (default: loaded from .env file)")
-    parser.add_argument("--max_concurrent", type=int, default=MAX_CONCURRENT_REQUESTS,
-                        help=f"Maximum concurrent API requests (default: {MAX_CONCURRENT_REQUESTS})")
+    parser.add_argument("--max_concurrent", type=int, default=PROCESSING_CONFIG["max_concurrent_requests"],
+                        help=f"Maximum concurrent API requests (default: {PROCESSING_CONFIG['max_concurrent_requests']})")
     return parser.parse_args()
 
 def format_mcq_prompt(question: str, choices: List[str]) -> str:
@@ -214,50 +205,28 @@ def format_choices(choices: List[str]) -> List[str]:
     option_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     return [f"{option_letters[i]}. {choice}" for i, choice in enumerate(choices)]
 
-def get_filtered_kwargs(api_mode):
-    """Get the appropriate generation kwargs based on API mode."""
-    if api_mode.lower() == "remote":
-        # For remote API, only include parameters that are supported
-        return {k: v for k, v in GENERATION_KWARGS.items() if k in REMOTE_API_PARAMS}
-    else:
-        # For local vLLM, we can include all parameters as specified in config
-        return GENERATION_KWARGS
-
 async def main_async():
     # Parse command line arguments
     args = parse_args()
     
     # Set up LLM parameters
-    api_mode = args.api_mode
     api_base = args.api_base
     model_name = args.model
     max_concurrent = args.max_concurrent
     
-    # Handle API key based on mode
-    if api_mode == "remote":
-        # For remote API, require a real API key
-        api_key = args.api_key or os.environ.get(API_KEY_NAME)
-        if not api_key:
-            raise ValueError(f"API key is required for remote API mode. Set it with --api_key or in .env file as {API_KEY_NAME}.")
-    else:
-        # For local vLLM server, use empty key
-        api_key = "EMPTY"
+    # Handle API key - always required now
+    api_key = args.api_key or os.environ.get(LLM_CONFIG["api_key_name"])
+    if not api_key:
+        raise ValueError(f"API key is required. Set it with --api_key or in .env file as {LLM_CONFIG['api_key_name']}.")
     
-    # Filter generation kwargs based on API mode
-    filtered_kwargs = get_filtered_kwargs(api_mode)
-    
-    # Log which parameters were filtered out
-    if api_mode == "remote":
-        excluded_params = set(GENERATION_KWARGS.keys()) - set(filtered_kwargs.keys())
-        if excluded_params:
-            logger.warning(f"Excluding incompatible parameters for remote mode: {excluded_params}")
+    # Use default sampling parameters from config
+    sampling_params = DEFAULT_SAMPLING_PARAMS
         
     # Log the configuration
     print(f"Running inference with the following settings:")
-    print(f"  API Mode: {api_mode}")
     print(f"  API Base URL: {api_base}")
     print(f"  Model: {model_name}")
-    print(f"  Dataset: {DATASET_NAME} (split: {DATASET_SPLIT})")
+    print(f"  Dataset: {DATASET_CONFIG['dataset_name']} (split: {DATASET_CONFIG['dataset_split']})")
     
     # Handle 'all' or specific number of problems from args
     num_problems_arg = args.num_problems
@@ -265,30 +234,26 @@ async def main_async():
         try:
             num_problems_val = int(num_problems_arg)
             if num_problems_val <= 0:
-                print(f"Warning: num_problems must be positive or 'all'. Using default from config: {NUM_PROBLEMS}")
-                num_problems_val = NUM_PROBLEMS
+                print(f"Warning: num_problems must be positive or 'all'. Using default from config: {DATASET_CONFIG['num_problems']}")
+                num_problems_val = DATASET_CONFIG["num_problems"]
         except ValueError:
-            print(f"Warning: Invalid num_problems value '{num_problems_arg}'. Using default from config: {NUM_PROBLEMS}")
-            num_problems_val = NUM_PROBLEMS
+            print(f"Warning: Invalid num_problems value '{num_problems_arg}'. Using default from config: {DATASET_CONFIG['num_problems']}")
+            num_problems_val = DATASET_CONFIG["num_problems"]
     else:
         num_problems_val = 'all' # Use 'all' string
         
     print(f"  Problems to process: {num_problems_val}")
     print(f"  Responses per problem: {args.k_responses}")
-    print(f"  Temperature: {args.temperature}")
-    print(f"  Max tokens: {args.max_tokens}")
     print(f"  Batch size: {args.batch_size}")
     print(f"  Max concurrent requests: {max_concurrent}")
     print(f"  Output directory: {args.output_dir}")
     print(f"  Output file: {args.output_file}")
-    
-    # Only show generation parameters that will actually be used
-    print(f"  Generation parameters: {filtered_kwargs}")
+    print(f"  Sampling parameters: {sampling_params}")
     
     # Load the dataset using the new function and parsed argument
     dataset = load_math_dataset(
-        dataset_name=DATASET_NAME, 
-        split=DATASET_SPLIT, 
+        dataset_name=DATASET_CONFIG["dataset_name"], 
+        split=DATASET_CONFIG["dataset_split"], 
         num_problems=num_problems_val
     )
     
@@ -296,30 +261,21 @@ async def main_async():
     print(f"Initializing LLM...")
     
     try:
-        # Use our LLM module to create the appropriate LLM instance with filtered kwargs
+        # Use our LLM module to create the LLM instance
         llm = create_llm(
             model_name=model_name,
-            api_mode=api_mode,
             api_key=api_key, 
             api_base=api_base,
-            temperature=args.temperature,
-            max_tokens=args.max_tokens,
-            system_prompt=SYSTEM_PROMPT,
-            **filtered_kwargs  # Use properly filtered kwargs
+            system_prompt=LLM_CONFIG["system_prompt"],
+            sampling_params=sampling_params
         )
-        if SYSTEM_PROMPT:
-            print(f"LLM initialized with system prompt: {SYSTEM_PROMPT}")
+        if LLM_CONFIG["system_prompt"]:
+            print(f"LLM initialized with system prompt: {LLM_CONFIG['system_prompt']}")
         else:
             print(f"LLM initialized")
     except Exception as e:
         logger.error(f"Error initializing LLM: {e}")
-        if api_mode == "local":
-            print("\nFor local mode, make sure the vLLM server is running. You can start it with:")
-            print(f"python -m data_collection.serve_llm --model {model_name}")
         return
-    
-    if api_mode == "local":
-        print(f"NOTE: Make sure vLLM server is running with command: python -m data_collection.serve_llm --model {model_name}")
     
     # Create output file path
     output_file = os.path.join(args.output_dir, args.output_file)
