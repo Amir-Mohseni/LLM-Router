@@ -4,7 +4,7 @@ openai>=1.0.0
 requests>=2.31.0
 python-dotenv>=1.0.0 
 torch>=2.0.0
-vllm==0.8.5
+vllm>=0.8.5
 pyzmq==25.1.2
 tqdm>=4.67.1
 datasets>=3.5.0
