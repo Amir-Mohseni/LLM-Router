@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 # Import LLM functionality
 from LLM import create_llm
+from config import JUDGE_LLM_CONFIG, JUDGE_SAMPLING_PARAMS
 
 # Pydantic models for structured output
 class JudgeResponse(BaseModel):
@@ -46,16 +47,16 @@ def get_llm_judge():
         try:
             # Get API key from environment
             import os
-            api_key = os.getenv("GEMINI_API_KEY")
+            api_key = os.getenv(JUDGE_LLM_CONFIG["api_key_name"])
             if not api_key:
-                raise ValueError("GEMINI_API_KEY environment variable not set")
+                raise ValueError(f"{JUDGE_LLM_CONFIG['api_key_name']} environment variable not set")
             
             _llm_judge = create_llm(
-                model_name="gemini-2.0-flash",
-                api_mode="remote",
+                model_name=JUDGE_LLM_CONFIG["model_name"],
                 api_key=api_key,
-                api_base="https://generativelanguage.googleapis.com/v1beta/openai/",
-                temperature=0.5,  # Use low temperature for consistent judgments
+                api_base=JUDGE_LLM_CONFIG["base_url"],
+                system_prompt=JUDGE_LLM_CONFIG["system_prompt"],
+                sampling_params=JUDGE_SAMPLING_PARAMS
             )
         except Exception as e:
             print(f"Warning: Could not initialize LLM judge: {e}")

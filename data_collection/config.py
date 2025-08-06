@@ -12,7 +12,7 @@ LLM_CONFIG = {
 
 # Alternative LLM configurations (commented out)
 # LLM_CONFIG = {
-#     "model_name": "google/gemma-3-27b-it",
+#     "model_name": "qwen/qwen3-8b",
 #     "base_url": "http://localhost:8000/v1",
 #     "api_key_name": "VLLM_API_KEY",
 #     "system_prompt": None,
@@ -50,6 +50,22 @@ NON_THINKING_PARAMS = {
 
 # Default sampling parameters (empty by default)
 DEFAULT_SAMPLING_PARAMS = {}
+
+#
+# Judge LLM Configuration (for answer extraction verification)
+#
+JUDGE_LLM_CONFIG = {
+    "model_name": "gemini-2.0-flash",
+    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "api_key_name": "GEMINI_API_KEY",
+    "system_prompt": None,
+}
+
+# Judge sampling parameters (for consistent judgments)
+JUDGE_SAMPLING_PARAMS = {
+    "temperature": 0.5,
+    "max_tokens": 4096,
+}
 
 #
 # Dataset Configuration

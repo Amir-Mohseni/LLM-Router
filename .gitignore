@@ -1,13 +1,13 @@
 .DS_Store
 .env
-venv
-__pycache__
+venv/
+__pycache__/
 TODO.txt
-.pytest_cache
-
+.pytest_cache/
 
 # Data
-data_collection/inference_results/*
-data_collection/extracted_answers/*
+data_collection/inference_results/
+data_collection/extracted_answers/
+
 *.csv
 *.ipynb
