@@ -26,6 +26,7 @@ import asyncio
 # Import OpenAI components
 import openai
 from openai import OpenAI, AsyncOpenAI
+import instructor
 
 # Load environment variables
 load_dotenv()
@@ -36,15 +37,12 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Import PIL for image handling
-try:
-    from PIL import Image
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
-    logger.warning("PIL not available. Image functionality will be limited.")
+from PIL import Image
+PIL_AVAILABLE = True
 
 # Define type variable for generic class
 T = TypeVar('T', bound=BaseModel)
+
 
 def _is_url(string: str) -> bool:
     """Check if a string is a valid URL."""
@@ -157,8 +155,10 @@ class BaseLLM(ABC):
         self.system_prompt = system_prompt
         self.extra_body = extra_body
         self.kwargs = kwargs
-        self.client = None  # Will be initialized by subclasses
-        self.async_client = None  # Async client
+        self.client = None
+        self.async_client = None
+        self.base_client = None
+        self.base_async_client = None
     
     @abstractmethod
     def _initialize_model(self):
@@ -202,7 +202,7 @@ class BaseLLM(ABC):
         Returns:
             str: The model's response
         """
-        if not self.client:
+        if not self.base_client:
             raise ValueError("Model has not been initialized")
             
         try:
@@ -221,7 +221,7 @@ class BaseLLM(ABC):
                 logger.debug(f"Using extra_body parameters: {self.extra_body}")
             
             logger.debug(f"Request parameters: {request_params}")
-            response = self.client.chat.completions.create(**request_params)
+            response = self.base_client.chat.completions.create(**request_params)
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"Error invoking model: {str(e)}")
@@ -238,7 +238,7 @@ class BaseLLM(ABC):
         Returns:
             str: The model's response
         """
-        if not self.async_client:
+        if not self.base_async_client:
             raise ValueError("Async client has not been initialized")
             
         try:
@@ -255,7 +255,7 @@ class BaseLLM(ABC):
             if self.extra_body:
                 request_params["extra_body"] = self.extra_body
             
-            response = await self.async_client.chat.completions.create(**request_params)
+            response = await self.base_async_client.chat.completions.create(**request_params)
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"Error in async invocation: {str(e)}")
@@ -279,31 +279,21 @@ class BaseLLM(ABC):
         try:
             messages = self._build_messages(prompt, images)
             
-            # Build request parameters with response_format for structured output
+            # Build request parameters for instructor
             request_params = {
                 "model": self.model_name,
                 "messages": messages,
-                "response_format": {"type": "json_object"},
+                "response_model": output_schema,
                 **self.kwargs
             }
             
-            # Add extra_body if provided
+            # Add extra_body if provided (instructor will handle this properly)
             if self.extra_body:
-                request_params["extra_body"] = self.extra_body
+                request_params.update(self.extra_body)
             
+            # Use instructor's create method for structured output
             response = self.client.chat.completions.create(**request_params)
-            content = response.choices[0].message.content
-            
-            # Parse JSON response and validate with Pydantic
-            try:
-                data = json.loads(content)
-                return output_schema(**data)
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON response: {content}")
-                raise ValueError(f"Invalid JSON response: {str(e)}")
-            except Exception as e:
-                logger.error(f"Failed to validate with schema: {str(e)}")
-                raise ValueError(f"Response doesn't match schema: {str(e)}")
+            return response
                 
         except Exception as e:
             logger.error(f"Failed to generate structured output: {str(e)}")
@@ -327,31 +317,21 @@ class BaseLLM(ABC):
         try:
             messages = self._build_messages(prompt, images)
             
-            # Build request parameters with response_format for structured output
+            # Build request parameters for instructor
             request_params = {
                 "model": self.model_name,
                 "messages": messages,
-                "response_format": {"type": "json_object"},
+                "response_model": output_schema,
                 **self.kwargs
             }
             
-            # Add extra_body if provided
+            # Add extra_body if provided (instructor will handle this properly)
             if self.extra_body:
-                request_params["extra_body"] = self.extra_body
+                request_params.update(self.extra_body)
             
+            # Use instructor's async create method for structured output
             response = await self.async_client.chat.completions.create(**request_params)
-            content = response.choices[0].message.content
-            
-            # Parse JSON response and validate with Pydantic
-            try:
-                data = json.loads(content)
-                return output_schema(**data)
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON response: {content}")
-                raise ValueError(f"Invalid JSON response: {str(e)}")
-            except Exception as e:
-                logger.error(f"Failed to validate with schema: {str(e)}")
-                raise ValueError(f"Response doesn't match schema: {str(e)}")
+            return response
                 
         except Exception as e:
             logger.error(f"Failed to generate structured output: {str(e)}")
@@ -398,16 +378,20 @@ class RemoteLLM(BaseLLM):
             if self.base_url:
                 client_config["base_url"] = self.base_url
                 
-            # Initialize both sync and async clients
-            self.client = OpenAI(**client_config)
-            self.async_client = AsyncOpenAI(**client_config)
+            # Initialize base clients for regular completions
+            self.base_client = OpenAI(**client_config)
+            self.base_async_client = AsyncOpenAI(**client_config)
+            
+            # Initialize instructor-wrapped clients for structured outputs
+            self.client = instructor.from_openai(self.base_client)
+            self.async_client = instructor.from_openai(self.base_async_client)
             
             logger.info(f"Initialized remote LLM: {self.model_name}")
         except Exception as e:
             logger.error(f"Error initializing remote LLM: {str(e)}")
             raise
 
-# Factory function to create an LLM instance (always remote)
+
 def create_llm(
     model_name: str,
     api_key: str,
