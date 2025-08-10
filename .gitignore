@@ -11,3 +11,4 @@ data_collection/extracted_answers/
 
 *.csv
 *.ipynb
+temp
