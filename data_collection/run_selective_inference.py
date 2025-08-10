@@ -157,7 +157,7 @@ def run_inference_direct(args, problems, output_file):
     from LLM import create_llm
     # SYSTEM_PROMPT is now in LLM_CONFIG
     from prompts import (
-        MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT, 
+        MATH_PROMPT, MCQ_PROMPT_TEMPLATE, OPEN_ENDED_PROMPT, DEFAULT_SYSTEM_PROMPT, 
         env as jinja_env
     )
     from tqdm import tqdm
@@ -174,7 +174,13 @@ def run_inference_direct(args, problems, output_file):
         if choices:
             return format_mcq_prompt(question, choices)
         else:
-            return jinja_env.from_string(MATH_PROMPT).render(question=question)
+            # For non-MCQ questions, choose prompt based on dataset type
+            dataset_type = DATASET_CONFIG.get("dataset_type", "final_answer")
+            if dataset_type == "open_ended":
+                return jinja_env.from_string(OPEN_ENDED_PROMPT).render(question=question)
+            else:
+                # Default to math prompt for final_answer mode
+                return jinja_env.from_string(MATH_PROMPT).render(question=question)
     
     def format_choices(choices):
         option_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -191,17 +197,20 @@ def run_inference_direct(args, problems, output_file):
     # Initialize LLM
     print(f"Initializing LLM...")
     try:
+        # Use DEFAULT_SYSTEM_PROMPT from prompts.py if no system prompt is configured
+        system_prompt = LLM_CONFIG["system_prompt"] or DEFAULT_SYSTEM_PROMPT.strip()
+        
         llm = create_llm(
             model_name=args.model,
             api_key=api_key, 
             api_base=args.api_base,
-            system_prompt=LLM_CONFIG["system_prompt"],
+            system_prompt=system_prompt,
             sampling_params=sampling_params
         )
         if LLM_CONFIG["system_prompt"]:
-            print(f"LLM initialized with system prompt: {LLM_CONFIG['system_prompt']}")
+            print(f"LLM initialized with custom system prompt: {LLM_CONFIG['system_prompt']}")
         else:
-            print(f"LLM initialized")
+            print(f"LLM initialized with default system prompt from prompts.py")
     except Exception as e:
         logger.error(f"Error initializing LLM: {e}")
         return
@@ -410,8 +419,8 @@ def run_inference_direct(args, problems, output_file):
                     else:
                         formatted_prompt = format_prompt(question)
                     
-                    # Prepend system prompt
-                    final_prompt = f"{DEFAULT_SYSTEM_PROMPT}\n\n{formatted_prompt}"
+                    # Use the formatted prompt directly; system prompt is handled by LLM
+                    final_prompt = formatted_prompt
                     batch_prompts.append(final_prompt)
                     
                     # Store problem info

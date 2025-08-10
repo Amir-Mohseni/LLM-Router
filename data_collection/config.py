@@ -74,6 +74,7 @@ DATASET_CONFIG = {
     "dataset_name": "HPC-Boys/AIME_1983_2024",  # Alternative: "HPC-Boys/MATH_500_MMLU_Pro"
     "dataset_split": "train",
     "num_problems": 'all',  # Number of problems to test, or 'all' for entire dataset
+    "dataset_type": "final_answer",  # "final_answer" for math problems with LaTeX, "open_ended" for general questions
 }
 
 #

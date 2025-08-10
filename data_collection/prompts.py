@@ -80,6 +80,19 @@ OBJECTIVE_PROMPT_TEMPLATE = PROMPT_TEMPLATE
 # Main math prompt used for non-MCQ questions
 MATH_PROMPT = PROMPT_TEMPLATE
 
+# Open-ended prompt for general questions (no LaTeX formatting required)
+OPEN_ENDED_PROMPT = """
+You are an intelligent assistant designed to provide accurate answers and assist with various tasks.
+
+Provide a clear, comprehensive, and well-structured response to the following question. Your answer should be:
+- Detailed and informative
+- Easy to understand
+- Well-organized with proper structure
+- Factually accurate
+
+Question: {{ question }}
+"""
+
 JUDGE_PROMPT = """
 You are a judge that evaluates the correctness of the answer provided. You will be given a response to a question,
 and the ground truth correct answer. 

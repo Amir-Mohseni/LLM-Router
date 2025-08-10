@@ -24,7 +24,7 @@ from config import (
     LLM_CONFIG, DATASET_CONFIG, GENERATION_CONFIG, PROCESSING_CONFIG, OUTPUT_CONFIG, DEFAULT_SAMPLING_PARAMS
 )
 from prompts import (
-    MATH_PROMPT, MCQ_PROMPT_TEMPLATE, DEFAULT_SYSTEM_PROMPT,
+    MATH_PROMPT, MCQ_PROMPT_TEMPLATE, OPEN_ENDED_PROMPT, DEFAULT_SYSTEM_PROMPT,
     env as jinja_env
 )
 # Import dataset loading function
@@ -75,8 +75,13 @@ def format_prompt(question: str, choices: Optional[List[str]] = None) -> str:
     if choices:
         return format_mcq_prompt(question, choices)
     else:
-        # For non-MCQ questions, use the regular prompt with proper Jinja rendering
-        return jinja_env.from_string(MATH_PROMPT).render(question=question)
+        # For non-MCQ questions, choose prompt based on dataset type
+        dataset_type = DATASET_CONFIG.get("dataset_type", "final_answer")
+        if dataset_type == "open_ended":
+            return jinja_env.from_string(OPEN_ENDED_PROMPT).render(question=question)
+        else:
+            # Default to math prompt for final_answer mode
+            return jinja_env.from_string(MATH_PROMPT).render(question=question)
 
 async def async_generate_response(llm: BaseLLM, prompt: str, prompt_idx: int, semaphore, k_responses: int = 1) -> Dict:
     """Generate responses for a single prompt using the LLM module asynchronously"""
@@ -260,18 +265,21 @@ async def main_async():
     print(f"Initializing LLM...")
     
     try:
+        # Use DEFAULT_SYSTEM_PROMPT from prompts.py if no system prompt is configured
+        system_prompt = LLM_CONFIG["system_prompt"] or DEFAULT_SYSTEM_PROMPT.strip()
+        
         # Use our LLM module to create the LLM instance
         llm = create_llm(
             model_name=model_name,
             api_key=api_key, 
             api_base=api_base,
-            system_prompt=LLM_CONFIG["system_prompt"],
+            system_prompt=system_prompt,
             sampling_params=sampling_params
         )
         if LLM_CONFIG["system_prompt"]:
-            print(f"LLM initialized with system prompt: {LLM_CONFIG['system_prompt']}")
+            print(f"LLM initialized with custom system prompt: {LLM_CONFIG['system_prompt']}")
         else:
-            print(f"LLM initialized")
+            print(f"LLM initialized with default system prompt from prompts.py")
     except Exception as e:
         logger.error(f"Error initializing LLM: {e}")
         return
@@ -393,8 +401,8 @@ async def main_async():
                 else:
                     formatted_prompt = format_prompt(question)
                 
-                # Prepend system prompt
-                final_prompt = f"{DEFAULT_SYSTEM_PROMPT}\n\n{formatted_prompt}"
+                # Use the formatted prompt directly; system prompt is handled by LLM
+                final_prompt = formatted_prompt
                 
                 # Store all problem information
                 batch_problems_info.append({

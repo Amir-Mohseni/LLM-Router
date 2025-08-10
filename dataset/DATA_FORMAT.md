@@ -4,7 +4,7 @@
 | ---------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `unique_id`            | `string`                     | **MD5 hash of the *entire* record (all other columns), computed on the canonical JSON representation with sorted keys.**           |
 | `question`             | `string`                     | The full question text.                                                                                                            |
-| `category`             | `string`                     | The subject or category of the question.                                                                                           |
+| `category`             | `string`                     | The subject or category of the question. Use "open-ended" for general questions that don't require LaTeX formatting.             |
 | `choices`              | `array of strings` \| `null` | List of answer choices for multiple-choice questions; `null` for open-ended questions.                                             |
 | `choice_index_correct` | `integer` \| `null`          | Index of the correct choice (0-based). Use `null` for open-ended questions.                                                        |
 | `explanation_correct`  | `string` \| `null`           | Explanation or worked solution. Use `null` if no explanation is available.                                                         |
