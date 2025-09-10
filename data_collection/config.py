@@ -75,6 +75,7 @@ DATASET_CONFIG = {
     "dataset_split": "train",
     "num_problems": 'all',  # Number of problems to test, or 'all' for entire dataset
     "dataset_type": "final_answer",  # "final_answer" for math problems with LaTeX, "open_ended" for general questions
+    "question_column_name": "question",  # Column name containing the question/prompt text (e.g., "question", "prompt", etc.)
 }
 
 #

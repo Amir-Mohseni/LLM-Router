@@ -390,7 +390,8 @@ async def main_async():
                 question_id = problem.get("unique_id", f"q{i}") # Get ID for info storage
                 
                 # Get the question and determine if it's MCQ
-                question = problem["question"]
+                question_column = DATASET_CONFIG.get("question_column_name", "question")
+                question = problem[question_column]
                 is_mcq = problem.get("choices") is not None
                 
                 # Format prompt based on question type
