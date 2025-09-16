@@ -76,6 +76,7 @@ DATASET_CONFIG = {
     "num_problems": 'all',  # Number of problems to test, or 'all' for entire dataset
     "dataset_type": "final_answer",  # "final_answer" for math problems with LaTeX, "open_ended" for general questions
     "question_column_name": "question",  # Column name containing the question/prompt text (e.g., "question", "prompt", etc.)
+    "answer_column_name": "answer_correct",  # Column name containing the correct answer (e.g., "answer_correct", "answer", "Answer", etc.)
 }
 
 #

@@ -58,3 +58,9 @@ The script automatically:
 - Processes data in configurable batches for efficiency
 - Shows progress bars and summary statistics
 - Handles memory management for large datasets
+
+## Datasets Used:
+- `math-ai/aime25`
+- `MathArena/hmmt_feb_2025`
+- `MathArena/brumo_2025`
+- `basicv8vc/SimpleQA` (5%)

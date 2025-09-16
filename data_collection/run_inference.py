@@ -394,6 +394,10 @@ async def main_async():
                 question = problem[question_column]
                 is_mcq = problem.get("choices") is not None
                 
+                # Get the correct answer using configured column name
+                answer_column = DATASET_CONFIG.get("answer_column_name", "answer_correct")
+                answer_correct = problem.get(answer_column, "No answer provided")
+                
                 # Format prompt based on question type
                 if is_mcq:
                     # Format choices with letters (A, B, C, etc.)
@@ -413,7 +417,7 @@ async def main_async():
                     "choices": problem.get("choices", None),
                     "choice_index_correct": problem.get("choice_index_correct", None),
                     "explanation_correct": problem.get("explanation_correct", ""),
-                    "answer_correct": problem.get("answer_correct", ""),
+                    "answer_correct": answer_correct,
                     "category": problem.get("category", "")
                 })
                 
