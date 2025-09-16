@@ -1,0 +1,31 @@
+# Configuration file for router evaluation
+
+# Model configuration
+model:
+  id: "AmirMohseni/reasoning-router-mmbert-small"
+  
+# Label mapping
+labels:
+  0: "no_think"
+  1: "think"
+
+# Dataset configuration
+dataset:
+  name: "MathArena/brumo_2025"
+  split: "train"
+  prompt_column: "problem"
+
+# Processing configuration
+processing:
+  batch_size: 32
+  max_length: 4096
+
+# Output configuration
+output:
+  results_dir: "results"
+  filename: "router_predictions.jsonl"
+
+# Device preference (will auto-detect the best available)
+# Options: "auto", "cuda", "mps", "cpu"
+device:
+  preference: "auto"
