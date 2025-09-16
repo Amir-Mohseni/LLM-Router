@@ -11,8 +11,8 @@ labels:
 
 # Dataset configuration
 dataset:
-  name: "MathArena/brumo_2025"
-  split: "train"
+  name: "math-ai/aime25"
+  split: "test"
   prompt_column: "problem"
 
 # Processing configuration
@@ -22,7 +22,7 @@ processing:
 
 # Output configuration
 output:
-  results_dir: "results"
+  results_dir: "evaluations/results"
   filename: "router_predictions.jsonl"
 
 # Device preference (will auto-detect the best available)
