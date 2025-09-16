@@ -6,7 +6,7 @@ This directory contains tools for evaluating the reasoning router on datasets.
 
 - `router_eval.py`: Main evaluation script with batch processing and device optimization
 - `config.yaml`: Configuration file for model, dataset, and processing settings
-- `results/`: Directory where evaluation results are saved as JSONL files
+- `results/`: Directory inside evaluations where evaluation results are saved as JSONL files
 
 ## Usage
 
@@ -33,9 +33,9 @@ Edit `config.yaml` to customize:
 
 ## Output
 
-Results are saved as JSONL files in an organized directory structure:
+Results are saved as JSONL files in an organized directory structure inside the evaluations folder:
 ```
-results/
+evaluations/results/
 ├── dataset_name/
 │   └── model_name/
 │       └── router_predictions.jsonl
@@ -44,7 +44,7 @@ results/
 For example:
 - Dataset: `math-ai/aime25` → `aime25`
 - Model: `AmirMohseni/reasoning-router-mmbert-small` → `reasoning-router-mmbert-small`
-- Output: `results/aime25/reasoning-router-mmbert-small/router_predictions.jsonl`
+- Output: `evaluations/results/aime25/reasoning-router-mmbert-small/router_predictions.jsonl`
 
 Each line in the JSONL file contains:
 - Original dataset fields
