@@ -2,7 +2,7 @@
 
 # Model configuration
 model:
-  id: "AmirMohseni/reasoning-router-mmbert-small"
+  id: "AmirMohseni/reasoning-router-qwen3-0.6b-base"
   
 # Label mapping
 labels:
@@ -11,13 +11,13 @@ labels:
 
 # Dataset configuration
 dataset:
-  name: "math-ai/aime25"
-  split: "test"
+  name: "MathArena/hmmt_feb_2025"
+  split: "train"
   prompt_column: "problem"
 
 # Processing configuration
 processing:
-  batch_size: 32
+  batch_size: 4
   max_length: 4096
 
 # Output configuration
