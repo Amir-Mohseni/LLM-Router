@@ -1,0 +1,29 @@
+# Configuration file for RouteLLM confidence-based router evaluation
+
+# Router configuration
+router:
+  type: "bert"  # Router type: "bert", "mf", "sw_ranking", etc.
+  # Note: strong_model and weak_model are placeholders for RouteLLM initialization
+  # They don't affect the confidence scores, only the router's internal calibration
+  strong_model: "placeholder-strong"
+  weak_model: "placeholder-weak"
+
+# Dataset configuration
+dataset:
+  name: "AmirMohseni/Nectar-Qwen3-8B-Splits"
+  split: "test"
+  prompt_column: "prompt"
+  
+  # Option 1: Reward/Score-based evaluation (WildChat, Nectar, etc.)
+  inference_results:
+    model_name: "qwen3-8b"  # Model with pre-computed quality scores
+  
+  # Option 2: Accuracy-based evaluation (AIME, HMMT, BRUMO, etc.)
+  # inference_results:
+  #   model_name: "qwen3-30b"  # Model with accuracy responses
+
+# Output configuration
+output:
+  results_dir: "evaluations/results"
+  filename: "router_predictions.jsonl"
+

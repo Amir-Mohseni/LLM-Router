@@ -1,8 +1,8 @@
-# Configuration file for router evaluation
+# Configuration file for classifier-based router evaluation (think/no_think)
 
 # Model configuration
 model:
-  id: "AmirMohseni/reasoning-router-qwen3-0.6b-base"
+  id: "AmirMohseni/qwen3-0.6b-router-classifier-lr1e-5-ep2"
   
 # Label mapping
 labels:
@@ -11,13 +11,13 @@ labels:
 
 # Dataset configuration
 dataset:
-  name: "MathArena/hmmt_feb_2025"
-  split: "train"
-  prompt_column: "problem"
+  name: "AmirMohseni/WildChat-filtered-Qwen3-8B-Splits"
+  split: "test"
+  prompt_column: "prompt"
 
 # Processing configuration
 processing:
-  batch_size: 4
+  batch_size: 1
   max_length: 4096
 
 # Output configuration

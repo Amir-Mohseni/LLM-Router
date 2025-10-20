@@ -1,6 +1,7 @@
 .DS_Store
 .env
 venv/
+.venv/
 __pycache__/
 TODO.txt
 .pytest_cache/
@@ -12,3 +13,5 @@ data_collection/extracted_answers/
 *.csv
 *.ipynb
 temp
+
+evaluations/results/

@@ -14,6 +14,8 @@ from tqdm import tqdm
 from pathlib import Path
 import argparse
 from typing import Dict, List, Any
+from dotenv import load_dotenv
+load_dotenv()
 
 
 def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
@@ -83,7 +85,7 @@ class RouterEvaluator:
         results = []
         for i in range(len(prompts)):
             scores = {
-                f"{self.labels[j]}_score": float(probs[i, j]) 
+                f"{self.labels[j]}_probability": float(probs[i, j]) 
                 for j in range(len(self.labels))
             }
             results.append(scores)
@@ -149,15 +151,15 @@ class RouterEvaluator:
         print(f"Evaluation complete! Results saved to {output_file}")
         
         # Print summary statistics
-        think_scores = [r['think_score'] for r in results]
-        no_think_scores = [r['no_think_score'] for r in results]
+        think_probabilities = [r['think_probability'] for r in results]
+        no_think_probabilities = [r['no_think_probability'] for r in results]
         
         print(f"\nSummary:")
         print(f"Total samples: {len(results)}")
-        print(f"Average think_score: {sum(think_scores) / len(think_scores):.4f}")
-        print(f"Average no_think_score: {sum(no_think_scores) / len(no_think_scores):.4f}")
-        print(f"Samples classified as 'think': {sum(1 for s in think_scores if s > 0.5)}")
-        print(f"Samples classified as 'no_think': {sum(1 for s in no_think_scores if s > 0.5)}")
+        print(f"Average think_probability: {sum(think_probabilities) / len(think_probabilities):.4f}")
+        print(f"Average no_think_probability: {sum(no_think_probabilities) / len(no_think_probabilities):.4f}")
+        print(f"Samples classified as 'think': {sum(1 for s in think_probabilities if s > 0.5)}")
+        print(f"Samples classified as 'no_think': {sum(1 for s in no_think_probabilities if s > 0.5)}")
 
 
 def main():
